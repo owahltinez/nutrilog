@@ -1,0 +1,268 @@
+"""Data models for Nutrilog and Google Health API v4 payloads."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, List, Optional
+from pydantic import BaseModel, Field
+
+
+class MealType(str, Enum):
+    MEAL_TYPE_UNSPECIFIED = "MEAL_TYPE_UNSPECIFIED"
+    BREAKFAST = "BREAKFAST"
+    LUNCH = "LUNCH"
+    DINNER = "DINNER"
+    SNACK = "SNACK"
+
+    @classmethod
+    def from_string(cls, val: str) -> MealType:
+        v = val.strip().upper()
+        if v in cls.__members__:
+            return cls[v]
+        mapping = {
+            "B": cls.BREAKFAST,
+            "BREAKFAST": cls.BREAKFAST,
+            "MORNING": cls.BREAKFAST,
+            "L": cls.LUNCH,
+            "LUNCH": cls.LUNCH,
+            "NOON": cls.LUNCH,
+            "D": cls.DINNER,
+            "DINNER": cls.DINNER,
+            "EVENING": cls.DINNER,
+            "NIGHT": cls.DINNER,
+            "S": cls.SNACK,
+            "SNACK": cls.SNACK,
+            "TEA": cls.SNACK,
+        }
+        return mapping.get(v, cls.MEAL_TYPE_UNSPECIFIED)
+
+
+class NutrientType(str, Enum):
+    PROTEIN = "PROTEIN"
+    TOTAL_FAT = "TOTAL_FAT"
+    TOTAL_CARBOHYDRATE = "TOTAL_CARBOHYDRATE"
+    FIBER = "FIBER"
+    SUGAR = "SUGAR"
+    SODIUM = "SODIUM"
+    POTASSIUM = "POTASSIUM"
+    CALCIUM = "CALCIUM"
+    IRON = "IRON"
+    SATURATED_FAT = "SATURATED_FAT"
+    CHOLESTEROL = "CHOLESTEROL"
+
+
+class GramsQuantity(BaseModel):
+    grams: float = 0.0
+
+
+class Energy(BaseModel):
+    kcal: float = 0.0
+
+
+class Serving(BaseModel):
+    amount: float = 1.0
+    unit: str = "serving"
+
+
+class NutrientEntry(BaseModel):
+    nutrient: str
+    quantity: GramsQuantity
+
+
+class TimeInterval(BaseModel):
+    startTime: str
+    endTime: str
+
+    @classmethod
+    def from_datetimes(
+        cls,
+        start: datetime,
+        end: Optional[datetime] = None,
+    ) -> TimeInterval:
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end is None:
+            end = start
+        elif end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+
+        return cls(
+            startTime=start.isoformat().replace("+00:00", "Z"),
+            endTime=end.isoformat().replace("+00:00", "Z"),
+        )
+
+
+class MealLog(BaseModel):
+    id: Optional[str] = None
+    foodDisplayName: str = "Meal"
+    mealType: MealType = MealType.MEAL_TYPE_UNSPECIFIED
+    interval: TimeInterval
+    energy: Energy = Field(default_factory=Energy)
+    totalCarbohydrate: GramsQuantity = Field(default_factory=GramsQuantity)
+    totalFat: GramsQuantity = Field(default_factory=GramsQuantity)
+    nutrients: List[NutrientEntry] = Field(default_factory=list)
+    serving: Optional[Serving] = None
+
+    @property
+    def calories_kcal(self) -> float:
+        return self.energy.kcal
+
+    @property
+    def protein_g(self) -> float:
+        for n in self.nutrients:
+            if n.nutrient.upper() == NutrientType.PROTEIN.value:
+                return n.quantity.grams
+        return 0.0
+
+    @property
+    def carbs_g(self) -> float:
+        if self.totalCarbohydrate.grams:
+            return self.totalCarbohydrate.grams
+        for n in self.nutrients:
+            if n.nutrient.upper() == NutrientType.TOTAL_CARBOHYDRATE.value:
+                return n.quantity.grams
+        return 0.0
+
+    @property
+    def fat_g(self) -> float:
+        if self.totalFat.grams:
+            return self.totalFat.grams
+        for n in self.nutrients:
+            if n.nutrient.upper() == NutrientType.TOTAL_FAT.value:
+                return n.quantity.grams
+        return 0.0
+
+    @property
+    def fiber_g(self) -> float:
+        for n in self.nutrients:
+            if n.nutrient.upper() == NutrientType.FIBER.value:
+                return n.quantity.grams
+        return 0.0
+
+    def to_api_payload(self) -> dict[str, Any]:
+        """Convert to Google Health API v4 nutritionLog dataPoint format."""
+        nutrients_list = []
+        for n in self.nutrients:
+            nutrients_list.append(
+                {
+                    "nutrient": n.nutrient,
+                    "quantity": {"grams": round(n.quantity.grams, 2)},
+                }
+            )
+
+        # Ensure protein is recorded in nutrients list
+        has_protein = any(n.nutrient == NutrientType.PROTEIN.value for n in self.nutrients)
+        if not has_protein and self.protein_g > 0:
+            nutrients_list.append(
+                {
+                    "nutrient": NutrientType.PROTEIN.value,
+                    "quantity": {"grams": round(self.protein_g, 2)},
+                }
+            )
+
+        payload: dict[str, Any] = {
+            "nutritionLog": {
+                "foodDisplayName": self.foodDisplayName,
+                "mealType": self.mealType.value,
+                "interval": {
+                    "startTime": self.interval.startTime,
+                    "endTime": self.interval.endTime,
+                },
+                "energy": {"kcal": round(self.energy.kcal, 1)},
+                "totalCarbohydrate": {"grams": round(self.carbs_g, 2)},
+                "totalFat": {"grams": round(self.fat_g, 2)},
+                "nutrients": nutrients_list,
+            }
+        }
+        if self.serving:
+            payload["nutritionLog"]["serving"] = {
+                "amount": self.serving.amount,
+                "unit": self.serving.unit,
+            }
+        return payload
+
+    @classmethod
+    def from_api_payload(cls, data: dict[str, Any], point_id: Optional[str] = None) -> MealLog:
+        """Parse Google Health API v4 response payload into MealLog."""
+        log_data = data.get("nutritionLog", data)
+        interval_data = log_data.get("interval", {})
+        start_time = interval_data.get("startTime", datetime.now(timezone.utc).isoformat())
+        end_time = interval_data.get("endTime", start_time)
+
+        energy_data = log_data.get("energy", {})
+        kcal = float(energy_data.get("kcal", 0.0))
+
+        carbs_data = log_data.get("totalCarbohydrate", {})
+        carbs_g = float(carbs_data.get("grams", 0.0))
+
+        fat_data = log_data.get("totalFat", {})
+        fat_g = float(fat_data.get("grams", 0.0))
+
+        raw_nutrients = log_data.get("nutrients", [])
+        nutrients = []
+        for n in raw_nutrients:
+            nutrients.append(
+                NutrientEntry(
+                    nutrient=n.get("nutrient", ""),
+                    quantity=GramsQuantity(grams=float(n.get("quantity", {}).get("grams", 0.0))),
+                )
+            )
+
+        serving_data = log_data.get("serving")
+        serving = None
+        if serving_data:
+            serving = Serving(
+                amount=float(serving_data.get("amount", 1.0)),
+                unit=str(serving_data.get("unit", "serving")),
+            )
+
+        raw_meal_type = log_data.get("mealType", MealType.MEAL_TYPE_UNSPECIFIED.value)
+        meal_type = MealType.from_string(raw_meal_type)
+
+        return cls(
+            id=point_id or data.get("id") or data.get("dataPointId"),
+            foodDisplayName=log_data.get("foodDisplayName", "Meal"),
+            mealType=meal_type,
+            interval=TimeInterval(startTime=start_time, endTime=end_time),
+            energy=Energy(kcal=kcal),
+            totalCarbohydrate=GramsQuantity(grams=carbs_g),
+            totalFat=GramsQuantity(grams=fat_g),
+            nutrients=nutrients,
+            serving=serving,
+        )
+
+
+class DailyTarget(BaseModel):
+    calories: float = 2000.0
+    protein: float = 120.0
+    carbs: Optional[float] = None
+    fat: Optional[float] = None
+
+
+class MacroSummary(BaseModel):
+    total_calories: float = 0.0
+    total_protein: float = 0.0
+    total_carbs: float = 0.0
+    total_fat: float = 0.0
+    total_fiber: float = 0.0
+    meals: List[MealLog] = Field(default_factory=list)
+
+    @property
+    def meal_count(self) -> int:
+        return len(self.meals)
+
+    def add_meal(self, meal: MealLog) -> None:
+        self.meals.append(meal)
+        self.total_calories += meal.calories_kcal
+        self.total_protein += meal.protein_g
+        self.total_carbs += meal.carbs_g
+        self.total_fat += meal.fat_g
+        self.total_fiber += meal.fiber_g
+
+    @classmethod
+    def from_meals(cls, meals: List[MealLog]) -> MacroSummary:
+        summary = cls()
+        for meal in meals:
+            summary.add_meal(meal)
+        return summary

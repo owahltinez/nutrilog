@@ -1,0 +1,155 @@
+"""Google Health API (v4) client for logging and querying nutrition data."""
+
+from __future__ import annotations
+
+from datetime import datetime, time, timezone
+from typing import Any, List, Optional
+from google.oauth2.credentials import Credentials
+import httpx
+
+from nutrilog.auth import get_credentials
+from nutrilog.models import MealLog
+
+API_BASE_URL = "https://health.googleapis.com/v4"
+NUTRITION_DATA_TYPE = "nutrition-log"
+
+
+class GoogleHealthError(Exception):
+    """Base exception for Google Health API errors."""
+
+
+class AuthenticationError(GoogleHealthError):
+    """Authentication or token expiry errors."""
+
+
+class APIPermissionError(GoogleHealthError):
+    """Permission denied or scope errors."""
+
+
+class ResourceNotFoundError(GoogleHealthError):
+    """Resource not found errors."""
+
+
+class GoogleHealthClient:
+    """Client for Google Health API v4 nutrition endpoints."""
+
+    def __init__(
+        self,
+        credentials: Optional[Credentials] = None,
+        base_url: str = API_BASE_URL,
+        timeout: float = 15.0,
+    ):
+        self.credentials = credentials
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+
+    def _get_headers(self) -> dict[str, str]:
+        """Obtain authorization headers, refreshing credentials if needed."""
+        creds = self.credentials or get_credentials()
+        if not creds or not creds.token:
+            raise AuthenticationError(
+                "Not authenticated. Please run 'nutrilog auth login' or configure credentials."
+            )
+        return {
+            "Authorization": f"Bearer {creds.token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+    def _handle_response_error(self, response: httpx.Response) -> None:
+        """Raise appropriate exceptions based on HTTP status code."""
+        if response.status_code == 401:
+            raise AuthenticationError(
+                "OAuth token is invalid or expired. Please run 'nutrilog auth login'."
+            )
+        elif response.status_code == 403:
+            try:
+                err_msg = response.json().get("error", {}).get("message", response.text)
+            except Exception:
+                err_msg = response.text
+            raise APIPermissionError(
+                f"Google Health API permission denied: {err_msg}. "
+                "Ensure the Google Health API is enabled in your Google Cloud Console."
+            )
+        elif response.status_code == 404:
+            raise ResourceNotFoundError(f"Requested resource not found: {response.text}")
+        elif response.status_code >= 400:
+            try:
+                err_msg = response.json().get("error", {}).get("message", response.text)
+            except Exception:
+                err_msg = response.text
+            raise GoogleHealthError(f"Google Health API error ({response.status_code}): {err_msg}")
+
+    def log_meal(self, meal: MealLog) -> MealLog:
+        """Create a new nutritionLog dataPoint in Google Health API."""
+        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints"
+        payload = meal.to_api_payload()
+
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                headers = self._get_headers()
+                response = client.post(url, json=payload, headers=headers)
+                if response.is_error:
+                    self._handle_response_error(response)
+                data = response.json()
+                point_id = data.get("id") or data.get("dataPointId")
+                return MealLog.from_api_payload(data, point_id=point_id)
+        except httpx.RequestError as exc:
+            raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
+
+    def list_meals(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        page_size: int = 100,
+    ) -> List[MealLog]:
+        """List nutrition data points within a given time range."""
+        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints"
+        params: dict[str, Any] = {"pageSize": page_size}
+
+        if start_time:
+            if start_time.tzinfo is None:
+                start_time = start_time.replace(tzinfo=timezone.utc)
+            params["startTime"] = start_time.isoformat().replace("+00:00", "Z")
+
+        if end_time:
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            params["endTime"] = end_time.isoformat().replace("+00:00", "Z")
+
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                headers = self._get_headers()
+                response = client.get(url, params=params, headers=headers)
+                if response.is_error:
+                    self._handle_response_error(response)
+
+                data = response.json()
+                data_points = data.get("dataPoints", [])
+                meals = []
+                for point in data_points:
+                    point_id = point.get("id") or point.get("dataPointId")
+                    meals.append(MealLog.from_api_payload(point, point_id=point_id))
+                return meals
+        except httpx.RequestError as exc:
+            raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
+
+    def get_today_meals(self) -> List[MealLog]:
+        """Retrieve all meals logged today (from 00:00:00 to 23:59:59 UTC/Local)."""
+        now = datetime.now(timezone.utc)
+        start_of_day = datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
+        end_of_day = datetime.combine(now.date(), time.max, tzinfo=timezone.utc)
+        return self.list_meals(start_time=start_of_day, end_time=end_of_day)
+
+    def delete_meal(self, data_point_id: str) -> bool:
+        """Delete a nutritionLog data point by ID."""
+        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints/{data_point_id}"
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                headers = self._get_headers()
+                response = client.delete(url, headers=headers)
+                if response.is_error:
+                    self._handle_response_error(response)
+                return response.status_code in (200, 204)
+        except httpx.RequestError as exc:
+            raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc

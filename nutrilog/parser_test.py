@@ -1,0 +1,108 @@
+"""Unit tests for nutrilog.parser."""
+
+from datetime import datetime, timezone
+import pytest
+
+from nutrilog.models import MealType
+from nutrilog.parser import infer_meal_type, parse_shorthand, parse_time_str
+
+
+def test_infer_meal_type():
+    assert infer_meal_type(datetime(2026, 8, 17, 8, 30)) == MealType.BREAKFAST
+    assert infer_meal_type(datetime(2026, 8, 17, 12, 30)) == MealType.LUNCH
+    assert infer_meal_type(datetime(2026, 8, 17, 16, 0)) == MealType.SNACK
+    assert infer_meal_type(datetime(2026, 8, 17, 19, 0)) == MealType.DINNER
+    assert infer_meal_type(datetime(2026, 8, 17, 23, 0)) == MealType.SNACK
+    assert infer_meal_type(datetime(2026, 8, 17, 2, 0)) == MealType.SNACK
+
+
+def test_parse_shorthand_standard():
+    input_str = "38p 18f 54c 580k Tofu Edamame Soba Bowl"
+    result = parse_shorthand(input_str)
+
+    assert result.protein == 38.0
+    assert result.fat == 18.0
+    assert result.carbs == 54.0
+    assert result.calories == 580.0
+    assert result.name == "Tofu Edamame Soba Bowl"
+
+
+def test_parse_shorthand_prefix_syntax():
+    input_str = "p38.5 f18 c54.2 580cal Protein Bowl"
+    result = parse_shorthand(input_str)
+
+    assert result.protein == 38.5
+    assert result.fat == 18.0
+    assert result.carbs == 54.2
+    assert result.calories == 580.0
+    assert result.name == "Protein Bowl"
+
+
+def test_parse_shorthand_explicit_labels():
+    input_str = "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g, sodium: 300"
+    result = parse_shorthand(input_str)
+
+    assert result.protein == 35.0
+    assert result.fat == 12.0
+    assert result.carbs == 5.0
+    assert result.calories == 280.0
+    assert result.fiber == 2.0
+    assert result.sodium == 300.0
+    assert result.name == "Grilled Salmon"
+
+
+def test_parse_shorthand_calorie_estimation():
+    # When calories are omitted, calculate: 30*4 + 40*4 + 10*9 = 120 + 160 + 90 = 370 kcal
+    input_str = "30p 40c 10f Oatmeal"
+    result = parse_shorthand(input_str)
+
+    assert result.protein == 30.0
+    assert result.carbs == 40.0
+    assert result.fat == 10.0
+    assert result.calories == 370.0
+    assert result.name == "Oatmeal"
+
+
+def test_parse_shorthand_no_name():
+    input_str = "25p 180k"
+    fixed_time = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
+    result = parse_shorthand(input_str, default_time=fixed_time)
+
+    assert result.protein == 25.0
+    assert result.calories == 180.0
+    assert result.name == ""
+
+    meal_log = result.to_meal_log()
+    assert meal_log.foodDisplayName == "Lunch"
+    assert meal_log.mealType == MealType.LUNCH
+    assert meal_log.protein_g == 25.0
+    assert meal_log.calories_kcal == 180.0
+
+
+def test_parse_shorthand_empty():
+    result = parse_shorthand("")
+    assert result.protein == 0.0
+    assert result.calories == 0.0
+    assert result.name == ""
+
+
+def test_parse_shorthand_with_custom_meal_type():
+    result = parse_shorthand("30p 400k Protein Shake", default_meal_type=MealType.SNACK)
+    meal_log = result.to_meal_log()
+    assert meal_log.mealType == MealType.SNACK
+    assert meal_log.foodDisplayName == "Protein Shake"
+
+
+def test_parse_time_str():
+    base = datetime(2026, 8, 17, 0, 0, 0, tzinfo=timezone.utc)
+    parsed = parse_time_str("12:30", base_date=base)
+    assert parsed.hour == 12
+    assert parsed.minute == 30
+    assert parsed.tzinfo is not None
+
+    parsed_full = parse_time_str("2026-08-17 19:45")
+    assert parsed_full.year == 2026
+    assert parsed_full.month == 8
+    assert parsed_full.day == 17
+    assert parsed_full.hour == 19
+    assert parsed_full.minute == 45
