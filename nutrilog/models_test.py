@@ -32,7 +32,7 @@ def test_time_interval_from_datetimes():
     dt = datetime(2026, 8, 17, 12, 30, 0, tzinfo=timezone.utc)
     interval = TimeInterval.from_datetimes(dt)
     assert interval.startTime == "2026-08-17T12:30:00Z"
-    assert interval.endTime == "2026-08-17T12:30:00Z"
+    assert interval.endTime == "2026-08-17T12:31:00Z"
 
     dt_end = datetime(2026, 8, 17, 13, 0, 0, tzinfo=timezone.utc)
     interval2 = TimeInterval.from_datetimes(dt, dt_end)

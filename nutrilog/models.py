@@ -74,18 +74,33 @@ class TimeInterval(BaseModel):
     startTime: str
     endTime: str
 
+    @property
+    def start_datetime(self) -> datetime:
+        from dateutil.parser import isoparse
+        return isoparse(self.startTime)
+
+    @property
+    def end_datetime(self) -> datetime:
+        from dateutil.parser import isoparse
+        return isoparse(self.endTime)
+
     @classmethod
     def from_datetimes(
         cls,
         start: datetime,
         end: Optional[datetime] = None,
     ) -> TimeInterval:
+        from datetime import timedelta
+
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
         if end is None:
-            end = start
+            end = start + timedelta(minutes=1)
         elif end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
+
+        if end <= start:
+            end = start + timedelta(minutes=1)
 
         return cls(
             startTime=start.isoformat().replace("+00:00", "Z"),
@@ -185,6 +200,16 @@ class MealLog(BaseModel):
     @classmethod
     def from_api_payload(cls, data: dict[str, Any], point_id: Optional[str] = None) -> MealLog:
         """Parse Google Health API v4 response payload into MealLog."""
+        if "response" in data and isinstance(data["response"], dict):
+            data = data["response"]
+
+        if not point_id:
+            name = data.get("name", "")
+            if name:
+                point_id = name.split("/")[-1]
+            else:
+                point_id = data.get("id") or data.get("dataPointId")
+
         log_data = data.get("nutritionLog", data)
         interval_data = log_data.get("interval", {})
         start_time = interval_data.get("startTime", datetime.now(timezone.utc).isoformat())

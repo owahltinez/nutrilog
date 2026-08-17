@@ -92,8 +92,7 @@ class GoogleHealthClient:
                 if response.is_error:
                     self._handle_response_error(response)
                 data = response.json()
-                point_id = data.get("id") or data.get("dataPointId")
-                return MealLog.from_api_payload(data, point_id=point_id)
+                return MealLog.from_api_payload(data)
         except httpx.RequestError as exc:
             raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
 
@@ -107,15 +106,10 @@ class GoogleHealthClient:
         url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints"
         params: dict[str, Any] = {"pageSize": page_size}
 
-        if start_time:
-            if start_time.tzinfo is None:
-                start_time = start_time.replace(tzinfo=timezone.utc)
-            params["startTime"] = start_time.isoformat().replace("+00:00", "Z")
-
-        if end_time:
-            if end_time.tzinfo is None:
-                end_time = end_time.replace(tzinfo=timezone.utc)
-            params["endTime"] = end_time.isoformat().replace("+00:00", "Z")
+        if start_time and start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+        if end_time and end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
@@ -128,8 +122,16 @@ class GoogleHealthClient:
                 data_points = data.get("dataPoints", [])
                 meals = []
                 for point in data_points:
-                    point_id = point.get("id") or point.get("dataPointId")
-                    meals.append(MealLog.from_api_payload(point, point_id=point_id))
+                    meal = MealLog.from_api_payload(point)
+                    try:
+                        meal_start = meal.interval.start_datetime
+                        if start_time and meal_start < start_time:
+                            continue
+                        if end_time and meal_start > end_time:
+                            continue
+                    except Exception:
+                        pass
+                    meals.append(meal)
                 return meals
         except httpx.RequestError as exc:
             raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
@@ -142,12 +144,18 @@ class GoogleHealthClient:
         return self.list_meals(start_time=start_of_day, end_time=end_of_day)
 
     def delete_meal(self, data_point_id: str) -> bool:
-        """Delete a nutritionLog data point by ID."""
-        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints/{data_point_id}"
+        """Delete a nutritionLog data point by ID or full resource name."""
+        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints:batchDelete"
+        if "/" in data_point_id:
+            name = data_point_id
+        else:
+            name = f"users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints/{data_point_id}"
+
+        payload = {"names": [name]}
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 headers = self._get_headers()
-                response = client.delete(url, headers=headers)
+                response = client.post(url, json=payload, headers=headers)
                 if response.is_error:
                     self._handle_response_error(response)
                 return response.status_code in (200, 204)

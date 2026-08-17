@@ -1,7 +1,7 @@
 """Unit tests for nutrilog.client."""
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from google.oauth2.credentials import Credentials
 import httpx
 import pytest
@@ -72,14 +72,15 @@ def test_log_meal_success(client):
 
 
 def test_log_meal_not_authenticated():
-    unauth_client = GoogleHealthClient(credentials=None)
-    with pytest.raises(AuthenticationError, match="Not authenticated"):
-        unauth_client.log_meal(
-            MealLog(
-                foodDisplayName="Meal",
-                interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+    with patch("nutrilog.client.get_credentials", return_value=None):
+        unauth_client = GoogleHealthClient(credentials=None)
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            unauth_client.log_meal(
+                MealLog(
+                    foodDisplayName="Meal",
+                    interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:01:00Z"),
+                )
             )
-        )
 
 
 @respx.mock
@@ -153,5 +154,5 @@ def test_list_meals(client):
 
 @respx.mock
 def test_delete_meal(client):
-    respx.delete(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints/point-123").respond(204)
+    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(200)
     assert client.delete_meal("point-123") is True
