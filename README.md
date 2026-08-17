@@ -214,8 +214,11 @@ nutrilog auth setup --client-id "<YOUR_CLIENT_ID>" --client-secret "<YOUR_CLIENT
 export NUTRILOG_CLIENT_ID="<YOUR_CLIENT_ID>"
 export NUTRILOG_CLIENT_SECRET="<YOUR_CLIENT_SECRET>"
 
-# Complete browser OAuth login
+# Standard local browser login
 nutrilog auth login
+
+# Remote SSH / Headless login (copy-paste flow)
+nutrilog auth login --remote
 
 # Check authentication status & token expiry
 nutrilog auth status

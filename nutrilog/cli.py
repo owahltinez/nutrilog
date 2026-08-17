@@ -449,20 +449,21 @@ def auth_login_cmd(
     secrets: Optional[Path] = typer.Option(None, "--secrets", "-s", help="Path to client_secrets.json."),
     port: int = typer.Option(0, "--port", "-p", help="Port for local loopback server (default random)."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not automatically launch a browser window."),
-    manual: bool = typer.Option(
+    remote: bool = typer.Option(
         False,
+        "--remote",
+        "-r",
         "--manual",
-        "-m",
         help="Use copy-paste authorization flow (recommended for remote SSH sessions).",
     ),
 ):
     """Log in to Google Health via OAuth 2.0."""
-    from nutrilog.auth import is_headless_or_ssh, login_manual
+    from nutrilog.auth import is_headless_or_ssh, login_remote
 
     try:
-        if manual or (no_browser and is_headless_or_ssh()):
-            console.print("[bold blue]Initiating OAuth 2.0 authorization (Remote / Manual Mode)...[/bold blue]")
-            login_manual(client_config_path=secrets)
+        if remote or (no_browser and is_headless_or_ssh()):
+            console.print("[bold blue]Initiating OAuth 2.0 authorization (Remote SSH Mode)...[/bold blue]")
+            login_remote(client_config_path=secrets)
         else:
             console.print("[bold blue]Initiating Google OAuth 2.0 authorization...[/bold blue]")
             auth_login(client_config_path=secrets, port=port, open_browser=not no_browser)

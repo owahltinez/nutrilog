@@ -108,8 +108,11 @@ nutrilog auth setup --client-id "<ID>" --client-secret "<SECRET>"
 # Or from JSON file:
 nutrilog auth setup --file path/to/client_secrets.json
 
-# Interactive browser login
+# Interactive browser login (local)
 nutrilog auth login
+
+# Remote SSH login (copy-paste flow)
+nutrilog auth login --remote
 
 # Sign out and clear stored tokens
 nutrilog auth logout

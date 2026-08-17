@@ -154,11 +154,11 @@ def login(
     return creds
 
 
-def login_manual(
+def login_remote(
     client_config_path: Optional[Path] = None,
     input_callback: Optional[Callable[[str], str]] = None,
 ) -> Credentials:
-    """Run console/manual copy-paste OAuth 2.0 flow for remote SSH or browserless environments."""
+    """Run console/remote copy-paste OAuth 2.0 flow for remote SSH or browserless environments."""
     flow = _create_flow(client_config_path)
     flow.redirect_uri = "http://localhost"
 
@@ -167,7 +167,7 @@ def login_manual(
     if input_callback:
         raw_input = input_callback(auth_url)
     else:
-        print(f"\n1. Open this URL in your browser:\n\n{auth_url}\n")
+        print(f"\n1. Open this URL in your local browser:\n\n{auth_url}\n")
         raw_input = input("2. After authorizing, paste the redirect URL (or code) here: ")
 
     code = extract_auth_code(raw_input)
@@ -175,6 +175,10 @@ def login_manual(
     creds = flow.credentials
     save_tokens(_token_dict_from_creds(creds))
     return creds
+
+
+# Backward-compatibility alias
+login_manual = login_remote
 
 
 def get_auth_status() -> dict[str, Any]:

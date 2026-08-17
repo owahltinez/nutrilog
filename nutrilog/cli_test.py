@@ -31,7 +31,7 @@ def test_cli_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert "Nutrilog" in result.stdout
-    assert "0.1.1" in result.stdout
+    assert "0.1.2" in result.stdout
 
 
 def test_cli_dry_run_explicit_log_command(temp_config_dir: Path):
@@ -227,6 +227,14 @@ def test_cli_auth_setup_with_file(temp_config_dir: Path, tmp_path: Path):
     result = runner.invoke(app, ["auth", "setup", "--file", str(creds_file)])
     assert result.exit_code == 0
     assert "Saved client credentials from" in result.stdout
+
+
+def test_cli_auth_login_remote(temp_config_dir: Path):
+    with patch("nutrilog.auth.login_remote") as mock_login_remote:
+        result = runner.invoke(app, ["auth", "login", "--remote"])
+        assert result.exit_code == 0
+        assert "Remote SSH Mode" in result.stdout
+        mock_login_remote.assert_called_once()
 
 
 def test_cli_config_commands(temp_config_dir: Path):

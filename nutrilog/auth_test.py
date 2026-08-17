@@ -142,15 +142,15 @@ def test_is_headless_or_ssh(monkeypatch: pytest.MonkeyPatch):
     assert is_headless_or_ssh() is False
 
 
-def test_login_manual(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
-    from nutrilog.auth import login_manual
+def test_login_remote(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    from nutrilog.auth import login_remote
 
     monkeypatch.setenv("NUTRILOG_CLIENT_ID", "test-id")
     monkeypatch.setenv("NUTRILOG_CLIENT_SECRET", "test-secret")
 
     mock_creds = MagicMock()
-    mock_creds.token = "manual-token"
-    mock_creds.refresh_token = "manual-refresh"
+    mock_creds.token = "remote-token"
+    mock_creds.refresh_token = "remote-refresh"
     mock_creds.token_uri = "https://oauth2.googleapis.com/token"
     mock_creds.client_id = "test-id"
     mock_creds.client_secret = "test-secret"
@@ -163,7 +163,7 @@ def test_login_manual(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
         mock_flow.authorization_url.return_value = ("https://auth.url", "state")
         mock_flow_init.return_value = mock_flow
 
-        creds = login_manual(input_callback=lambda url: "http://localhost/?code=4/0AbcTest")
+        creds = login_remote(input_callback=lambda url: "http://localhost/?code=4/0AbcTest")
         assert creds == mock_creds
         mock_flow.fetch_token.assert_called_once_with(code="4/0AbcTest")
 
