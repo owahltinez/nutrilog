@@ -118,3 +118,52 @@ def test_login_flow(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
         creds = login(port=0, open_browser=False)
         assert creds == mock_creds
         mock_flow.run_local_server.assert_called_once()
+
+
+def test_extract_auth_code():
+    from nutrilog.auth import extract_auth_code
+
+    assert extract_auth_code("http://localhost:54321/?code=4/0AbCd123&scope=health") == "4/0AbCd123"
+    assert extract_auth_code("https://localhost/?code=secret_code") == "secret_code"
+    assert extract_auth_code("code=secret_code") == "secret_code"
+    assert extract_auth_code("raw_code_value") == "raw_code_value"
+
+
+def test_is_headless_or_ssh(monkeypatch: pytest.MonkeyPatch):
+    from nutrilog.auth import is_headless_or_ssh
+
+    monkeypatch.setenv("SSH_CLIENT", "192.168.1.1 1234 22")
+    assert is_headless_or_ssh() is True
+
+    monkeypatch.delenv("SSH_CLIENT", raising=False)
+    monkeypatch.delenv("SSH_TTY", raising=False)
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert is_headless_or_ssh() is False
+
+
+def test_login_manual(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    from nutrilog.auth import login_manual
+
+    monkeypatch.setenv("NUTRILOG_CLIENT_ID", "test-id")
+    monkeypatch.setenv("NUTRILOG_CLIENT_SECRET", "test-secret")
+
+    mock_creds = MagicMock()
+    mock_creds.token = "manual-token"
+    mock_creds.refresh_token = "manual-refresh"
+    mock_creds.token_uri = "https://oauth2.googleapis.com/token"
+    mock_creds.client_id = "test-id"
+    mock_creds.client_secret = "test-secret"
+    mock_creds.scopes = ["scope1"]
+    mock_creds.expiry = datetime(2030, 1, 1, 0, 0, tzinfo=timezone.utc)
+
+    with patch("nutrilog.auth.InstalledAppFlow.from_client_config") as mock_flow_init:
+        mock_flow = MagicMock()
+        mock_flow.credentials = mock_creds
+        mock_flow.authorization_url.return_value = ("https://auth.url", "state")
+        mock_flow_init.return_value = mock_flow
+
+        creds = login_manual(input_callback=lambda url: "http://localhost/?code=4/0AbcTest")
+        assert creds == mock_creds
+        mock_flow.fetch_token.assert_called_once_with(code="4/0AbcTest")
+

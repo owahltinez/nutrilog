@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+import urllib.parse
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -26,6 +28,29 @@ SCOPES = [
 
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+
+
+def is_headless_or_ssh() -> bool:
+    """Detect if running in an SSH session, headless environment, or without GUI display."""
+    if os.getenv("SSH_CLIENT") or os.getenv("SSH_TTY") or os.getenv("SSH_CONNECTION"):
+        return True
+    if os.name == "posix" and not (os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")):
+        return True
+    return False
+
+
+def extract_auth_code(input_str: str) -> str:
+    """Extract the authorization code from a raw code or full redirect URL."""
+    cleaned = input_str.strip()
+    if "code=" in cleaned:
+        parsed = urllib.parse.urlparse(cleaned)
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "code" in qs:
+            return qs["code"][0]
+        for part in cleaned.split("&"):
+            if part.startswith("code="):
+                return part.split("=", 1)[1]
+    return cleaned
 
 
 def get_client_config() -> Optional[dict[str, Any]]:
@@ -93,34 +118,61 @@ def get_credentials() -> Optional[Credentials]:
     return creds if (creds and (creds.valid or creds.token)) else None
 
 
-def login(
-    client_config_path: Optional[Path] = None,
-    port: int = 0,
-    open_browser: bool = True,
-) -> Credentials:
-    """Run local server OAuth 2.0 flow to obtain user credentials."""
-    client_config = None
+def _create_flow(client_config_path: Optional[Path] = None) -> InstalledAppFlow:
     if client_config_path and client_config_path.exists():
-        flow = InstalledAppFlow.from_client_secrets_file(
+        return InstalledAppFlow.from_client_secrets_file(
             str(client_config_path),
             scopes=SCOPES,
         )
-    else:
-        client_config = get_client_config()
-        if not client_config:
-            raise ValueError(
-                "No OAuth client credentials found. Please provide a client_secrets.json file, "
-                "set NUTRILOG_CLIENT_ID and NUTRILOG_CLIENT_SECRET, or run 'nutrilog auth setup'."
-            )
-        flow = InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
+    client_config = get_client_config()
+    if not client_config:
+        raise ValueError(
+            "No OAuth client credentials found. Please provide a client_secrets.json file, "
+            "set NUTRILOG_CLIENT_ID and NUTRILOG_CLIENT_SECRET, or run 'nutrilog auth setup'."
+        )
+    return InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
+
+
+def login(
+    client_config_path: Optional[Path] = None,
+    port: int = 0,
+    open_browser: Optional[bool] = None,
+) -> Credentials:
+    """Run local server OAuth 2.0 flow to obtain user credentials."""
+    flow = _create_flow(client_config_path)
+
+    should_open = open_browser if open_browser is not None else (not is_headless_or_ssh())
 
     creds = flow.run_local_server(
         port=port,
-        open_browser=open_browser,
+        open_browser=should_open,
         prompt="consent",
         access_type="offline",
     )
 
+    save_tokens(_token_dict_from_creds(creds))
+    return creds
+
+
+def login_manual(
+    client_config_path: Optional[Path] = None,
+    input_callback: Optional[Callable[[str], str]] = None,
+) -> Credentials:
+    """Run console/manual copy-paste OAuth 2.0 flow for remote SSH or browserless environments."""
+    flow = _create_flow(client_config_path)
+    flow.redirect_uri = "http://localhost"
+
+    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+
+    if input_callback:
+        raw_input = input_callback(auth_url)
+    else:
+        print(f"\n1. Open this URL in your browser:\n\n{auth_url}\n")
+        raw_input = input("2. After authorizing, paste the redirect URL (or code) here: ")
+
+    code = extract_auth_code(raw_input)
+    flow.fetch_token(code=code)
+    creds = flow.credentials
     save_tokens(_token_dict_from_creds(creds))
     return creds
 

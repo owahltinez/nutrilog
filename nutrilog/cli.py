@@ -448,12 +448,24 @@ def rm_command(
 def auth_login_cmd(
     secrets: Optional[Path] = typer.Option(None, "--secrets", "-s", help="Path to client_secrets.json."),
     port: int = typer.Option(0, "--port", "-p", help="Port for local loopback server (default random)."),
-    no_browser: bool = typer.Option(False, "--no-browser", help="Do not automatically open a browser window."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not automatically launch a browser window."),
+    manual: bool = typer.Option(
+        False,
+        "--manual",
+        "-m",
+        help="Use copy-paste authorization flow (recommended for remote SSH sessions).",
+    ),
 ):
-    """Log in to Google Health via OAuth 2.0 browser authorization."""
+    """Log in to Google Health via OAuth 2.0."""
+    from nutrilog.auth import is_headless_or_ssh, login_manual
+
     try:
-        console.print("[bold blue]Initiating Google OAuth 2.0 authorization...[/bold blue]")
-        auth_login(client_config_path=secrets, port=port, open_browser=not no_browser)
+        if manual or (no_browser and is_headless_or_ssh()):
+            console.print("[bold blue]Initiating OAuth 2.0 authorization (Remote / Manual Mode)...[/bold blue]")
+            login_manual(client_config_path=secrets)
+        else:
+            console.print("[bold blue]Initiating Google OAuth 2.0 authorization...[/bold blue]")
+            auth_login(client_config_path=secrets, port=port, open_browser=not no_browser)
         console.print("[bold green]✓ Successfully authenticated with Google Health![/bold green]")
     except Exception as e:
         err_console.print(f"[bold red]Login failed:[/bold red] {e}")
