@@ -27,8 +27,5 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: uv pip install -e ".[dev]" --python ${{ matrix.python-version }}
-
       - name: Run test suite
-        run: uv run --python ${{ matrix.python-version }} pytest --cov=nutrilog
+        run: uv run --python ${{ matrix.python-version }} --extra dev pytest --cov=nutrilog
