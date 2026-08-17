@@ -20,8 +20,8 @@ from nutrilog.storage import (
 )
 
 SCOPES = [
-    "https://www.googleapis.com/auth/health.nutrition.writeonly",
-    "https://www.googleapis.com/auth/health.nutrition.readonly",
+    "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
+    "https://www.googleapis.com/auth/googlehealth.nutrition.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
     "openid",
 ]

@@ -59,7 +59,7 @@ def test_get_credentials_valid(temp_config_dir: Path):
         "token_uri": "https://oauth2.googleapis.com/token",
         "client_id": "test-client-id",
         "client_secret": "test-client-secret",
-        "scopes": ["https://www.googleapis.com/auth/health.nutrition.writeonly"],
+        "scopes": ["https://www.googleapis.com/auth/googlehealth.nutrition.writeonly"],
         "expiry": "2030-01-01T00:00:00Z",
     }
     save_tokens(token_data)
@@ -79,7 +79,7 @@ def test_get_credentials_expired_refreshed(temp_config_dir: Path):
         "token_uri": "https://oauth2.googleapis.com/token",
         "client_id": "test-client-id",
         "client_secret": "test-client-secret",
-        "scopes": ["https://www.googleapis.com/auth/health.nutrition.writeonly"],
+        "scopes": ["https://www.googleapis.com/auth/googlehealth.nutrition.writeonly"],
         "expiry": "2020-01-01T00:00:00Z",
     }
     save_tokens(token_data)
