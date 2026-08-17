@@ -43,13 +43,18 @@ def extract_auth_code(input_str: str) -> str:
     """Extract the authorization code from a raw code or full redirect URL."""
     cleaned = input_str.strip()
     if "code=" in cleaned:
+        if cleaned.startswith("code="):
+            code_part = cleaned.split("code=", 1)[1]
+            return urllib.parse.unquote(code_part.split("&", 1)[0])
+        if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+            cleaned = "http://" + cleaned
         parsed = urllib.parse.urlparse(cleaned)
         qs = urllib.parse.parse_qs(parsed.query)
         if "code" in qs:
             return qs["code"][0]
         for part in cleaned.split("&"):
             if part.startswith("code="):
-                return part.split("=", 1)[1]
+                return urllib.parse.unquote(part.split("=", 1)[1])
     return cleaned
 
 
@@ -167,8 +172,26 @@ def login_remote(
     if input_callback:
         raw_input = input_callback(auth_url)
     else:
-        print(f"\n1. Open this URL in your local browser:\n\n{auth_url}\n")
-        raw_input = input("2. After authorizing, paste the redirect URL (or code) here: ")
+        from rich.console import Console
+        from rich.panel import Panel
+
+        c = Console()
+        c.print()
+        c.print(
+            Panel.fit(
+                f"[bold cyan]1. Open this URL in your local browser:[/bold cyan]\n\n"
+                f"[bold underline link={auth_url}]{auth_url}[/bold underline link]\n\n"
+                f"[bold cyan]2. Grant consent:[/bold cyan]\n"
+                f"   Your browser will redirect to a URL starting with [green]http://localhost/?code=...[/green]\n"
+                f"   (The browser page will display [italic]\"This site can't be reached\"[/italic]—this is expected!)\n\n"
+                f"[bold cyan]3. Copy the URL:[/bold cyan]\n"
+                f"   Copy the [bold yellow]ENTIRE URL[/bold yellow] from your browser's address bar and paste it below.",
+                title="[bold blue]Google OAuth Remote Authorization[/bold blue]",
+                border_style="blue",
+            )
+        )
+        c.print()
+        raw_input = input("Paste the redirected URL (or code) from address bar: ")
 
     code = extract_auth_code(raw_input)
     flow.fetch_token(code=code)
