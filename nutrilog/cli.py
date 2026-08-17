@@ -483,7 +483,10 @@ def auth_status_cmd():
 
     table.add_row("Authenticated", "[green]Yes[/green]" if status["authenticated"] else "[red]No[/red]")
     table.add_row("Config Directory", str(get_config_dir()))
-    table.add_row("Client Credentials Found", "Yes" if status["has_credentials_configured"] else "No")
+    if status.get("using_default_credentials"):
+        table.add_row("OAuth Client", "Built-in Desktop App (Default)")
+    else:
+        table.add_row("OAuth Client", "Custom (Configured)")
     if status.get("expiry"):
         table.add_row("Token Expiry", str(status["expiry"]))
 

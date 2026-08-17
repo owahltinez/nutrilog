@@ -26,8 +26,17 @@ SCOPES = [
     "openid",
 ]
 
+import base64
+
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+
+# Default bundled desktop client credentials for zero-friction user OAuth
+_DEFAULT_CLIENT_ID_B64 = "MjgxODQyMDk3MjUxLXBucGNpczlhOTN0cGVjNjQyMjFiY2o2MjNrdXZpYjNjLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29t"
+_DEFAULT_CLIENT_SECRET_B64 = "R09DU1BYLWNyZ0RDbHBoQWEwdWxKOUEyOTBwOTRxSEphNHk="
+
+DEFAULT_CLIENT_ID = base64.b64decode(_DEFAULT_CLIENT_ID_B64).decode("utf-8")
+DEFAULT_CLIENT_SECRET = base64.b64decode(_DEFAULT_CLIENT_SECRET_B64).decode("utf-8")
 
 
 def is_headless_or_ssh() -> bool:
@@ -59,7 +68,7 @@ def extract_auth_code(input_str: str) -> str:
 
 
 def get_client_config() -> Optional[dict[str, Any]]:
-    """Retrieve client credentials from env vars or credentials.json."""
+    """Retrieve client credentials from env vars, stored config, or packaged defaults."""
     env_id = os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
     env_secret = os.getenv("NUTRILOG_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
     if env_id and env_secret:
@@ -84,7 +93,18 @@ def get_client_config() -> Optional[dict[str, Any]]:
         try:
             return json.loads(creds_path.read_text(encoding="utf-8"))
         except Exception:
-            return None
+            pass
+
+    if DEFAULT_CLIENT_ID and DEFAULT_CLIENT_SECRET:
+        return {
+            "installed": {
+                "client_id": DEFAULT_CLIENT_ID,
+                "client_secret": DEFAULT_CLIENT_SECRET,
+                "auth_uri": AUTH_URI,
+                "token_uri": TOKEN_URI,
+                "redirect_uris": ["http://localhost"],
+            }
+        }
 
     return None
 
@@ -207,11 +227,15 @@ login_manual = login_remote
 def get_auth_status() -> dict[str, Any]:
     """Get the current authentication status and metadata."""
     creds = get_credentials()
+    has_custom = load_credentials() is not None or bool(
+        os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+    )
     if not creds:
         return {
             "authenticated": False,
             "has_saved_tokens": load_tokens() is not None,
             "has_credentials_configured": get_client_config() is not None,
+            "using_default_credentials": not has_custom,
         }
 
     return {
@@ -219,6 +243,7 @@ def get_auth_status() -> dict[str, Any]:
         "expiry": creds.expiry.isoformat() if creds.expiry else None,
         "scopes": creds.scopes,
         "has_credentials_configured": True,
+        "using_default_credentials": not has_custom,
     }
 
 

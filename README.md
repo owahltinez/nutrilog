@@ -194,26 +194,11 @@ nutrilog skill install --all --link
 
 Nutrilog connects directly to the Google Health API using OAuth 2.0.
 
-### Step 1: GCP Project Setup (Free, 1-time)
+### 1. Instant Zero-Config Login (Default)
 
-1. Create or select a project in [Google Cloud Console](https://console.cloud.google.com).
-2. Enable the **Google Health API** (*APIs & Services $\rightarrow$ Library $\rightarrow$ Google Health API $\rightarrow$ Enable*).
-3. Under **OAuth consent screen**, select **External**, and add your email to **Test Users**.
-4. Under **Credentials**, create an **OAuth client ID** of type **Desktop App**, and download the JSON credentials.
-
-### Step 2: Configure & Log In
+Nutrilog includes built-in Desktop App client credentials so you can log in immediately from any terminal:
 
 ```bash
-# Option A: Import client_secrets.json file
-nutrilog auth setup --file path/to/client_secrets.json
-
-# Option B: Pass credentials via CLI flags
-nutrilog auth setup --client-id "<YOUR_CLIENT_ID>" --client-secret "<YOUR_CLIENT_SECRET>"
-
-# Option C: Use environment variables
-export NUTRILOG_CLIENT_ID="<YOUR_CLIENT_ID>"
-export NUTRILOG_CLIENT_SECRET="<YOUR_CLIENT_SECRET>"
-
 # Standard local browser login
 nutrilog auth login
 
@@ -225,6 +210,26 @@ nutrilog auth status
 
 # Sign out & clear local tokens
 nutrilog auth logout
+```
+
+### 2. Custom GCP Credentials (Optional / Advanced)
+
+If you prefer to use your own Google Cloud Project:
+
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com) and enable the **Google Health API**.
+2. Under **Credentials**, create an **OAuth client ID** of type **Desktop App**.
+3. Configure Nutrilog with your credentials:
+
+```bash
+# Option A: Import client_secrets.json file
+nutrilog auth setup --file path/to/client_secrets.json
+
+# Option B: Pass credentials via CLI flags
+nutrilog auth setup --client-id "<YOUR_CLIENT_ID>" --client-secret "<YOUR_CLIENT_SECRET>"
+
+# Option C: Use environment variables
+export NUTRILOG_CLIENT_ID="<YOUR_CLIENT_ID>"
+export NUTRILOG_CLIENT_SECRET="<YOUR_CLIENT_SECRET>"
 ```
 
 ---

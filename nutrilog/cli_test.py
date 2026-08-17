@@ -31,7 +31,7 @@ def test_cli_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert "Nutrilog" in result.stdout
-    assert "0.1.5" in result.stdout
+    assert "0.1.6" in result.stdout
 
 
 def test_cli_dry_run_explicit_log_command(temp_config_dir: Path):

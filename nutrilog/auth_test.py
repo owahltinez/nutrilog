@@ -33,17 +33,37 @@ def test_get_client_config_from_env(monkeypatch: pytest.MonkeyPatch, temp_config
     assert config["installed"]["client_secret"] == "env-client-secret"
 
 
+def test_get_client_config_default_fallback(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
+    monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+
+    config = get_client_config()
+    assert config is not None
+    assert "apps.googleusercontent.com" in config["installed"]["client_id"]
+
+
 def test_get_client_config_from_storage(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
     monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
     monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
 
-    assert get_client_config() is None
-
     stored = {"installed": {"client_id": "stored-id", "client_secret": "stored-secret"}}
     save_credentials(stored)
     assert get_client_config() == stored
+
+
+def test_get_client_config_none_when_no_defaults(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
+    monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr("nutrilog.auth.DEFAULT_CLIENT_ID", "")
+    monkeypatch.setattr("nutrilog.auth.DEFAULT_CLIENT_SECRET", "")
+
+    assert get_client_config() is None
 
 
 def test_get_credentials_none_when_empty(temp_config_dir: Path):

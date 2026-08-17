@@ -97,16 +97,11 @@ nutrilog config set --calories 2200 --protein 140 --carbs 220 --fat 65
 
 ## 5. Authentication
 
-Nutrilog uses Google OAuth 2.0 with offline refresh tokens:
+Nutrilog uses Google OAuth 2.0 with offline refresh tokens. It works out-of-the-box with zero configuration:
 
 ```bash
 # Check auth status
 nutrilog auth status
-
-# Set up client credentials (from GCP console)
-nutrilog auth setup --client-id "<ID>" --client-secret "<SECRET>"
-# Or from JSON file:
-nutrilog auth setup --file path/to/client_secrets.json
 
 # Interactive browser login (local)
 nutrilog auth login
@@ -116,4 +111,8 @@ nutrilog auth login --remote
 
 # Sign out and clear stored tokens
 nutrilog auth logout
+
+# (Optional) Use custom GCP client credentials:
+nutrilog auth setup --client-id "<ID>" --client-secret "<SECRET>"
+nutrilog auth setup --file path/to/client_secrets.json
 ```
