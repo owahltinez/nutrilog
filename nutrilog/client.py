@@ -103,13 +103,16 @@ class GoogleHealthClient:
         page_size: int = 100,
     ) -> List[MealLog]:
         """List nutrition data points within a given time range."""
+        from nutrilog.storage import get_user_timezone
+
+        active_tz = get_user_timezone()
         url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints"
         params: dict[str, Any] = {"pageSize": page_size}
 
         if start_time and start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
+            start_time = start_time.replace(tzinfo=active_tz)
         if end_time and end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=timezone.utc)
+            end_time = end_time.replace(tzinfo=active_tz)
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
@@ -125,6 +128,8 @@ class GoogleHealthClient:
                     meal = MealLog.from_api_payload(point)
                     try:
                         meal_start = meal.interval.start_datetime
+                        if meal_start.tzinfo is None:
+                            meal_start = meal_start.replace(tzinfo=timezone.utc)
                         if start_time and meal_start < start_time:
                             continue
                         if end_time and meal_start > end_time:
@@ -136,11 +141,14 @@ class GoogleHealthClient:
         except httpx.RequestError as exc:
             raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
 
-    def get_today_meals(self) -> List[MealLog]:
-        """Retrieve all meals logged today (from 00:00:00 to 23:59:59 UTC/Local)."""
-        now = datetime.now(timezone.utc)
-        start_of_day = datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
-        end_of_day = datetime.combine(now.date(), time.max, tzinfo=timezone.utc)
+    def get_today_meals(self, tz: Optional[Any] = None) -> List[MealLog]:
+        """Retrieve all meals logged today in the specified or active user timezone."""
+        from nutrilog.storage import get_user_timezone
+
+        active_tz = tz or get_user_timezone()
+        now_local = datetime.now(active_tz)
+        start_of_day = datetime.combine(now_local.date(), time.min, tzinfo=active_tz)
+        end_of_day = datetime.combine(now_local.date(), time.max, tzinfo=active_tz)
         return self.list_meals(start_time=start_of_day, end_time=end_of_day)
 
     def delete_meal(self, data_point_id: str) -> bool:

@@ -4,13 +4,79 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import zoneinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
+from dateutil import tz
 
 from nutrilog.models import DailyTarget
 
 ENV_CONFIG_DIR = "NUTRILOG_CONFIG_DIR"
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "nutrilog"
+
+COMMON_TZ_ALIASES = {
+    "AEST": "Australia/Sydney",
+    "AEDT": "Australia/Sydney",
+    "ACST": "Australia/Adelaide",
+    "ACDT": "Australia/Adelaide",
+    "AWST": "Australia/Perth",
+    "NZST": "Pacific/Auckland",
+    "NZDT": "Pacific/Auckland",
+    "PST": "America/Los_Angeles",
+    "PDT": "America/Los_Angeles",
+    "MST": "America/Denver",
+    "MDT": "America/Denver",
+    "CST": "America/Chicago",
+    "CDT": "America/Chicago",
+    "EST": "America/New_York",
+    "EDT": "America/New_York",
+    "GMT": "UTC",
+    "UTC": "UTC",
+    "Z": "UTC",
+}
+
+
+def get_machine_timezone() -> tzinfo:
+    """Return the user's machine/system local timezone."""
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def resolve_timezone(tz_input: Union[str, tzinfo, None]) -> tzinfo:
+    """Resolve a string, abbreviation, offset, or tzinfo into a valid tzinfo object."""
+    if tz_input is None:
+        return get_machine_timezone()
+    if isinstance(tz_input, tzinfo):
+        return tz_input
+
+    tz_str = tz_input.strip()
+    if not tz_str or tz_str.lower() in ("auto", "local", "system"):
+        return get_machine_timezone()
+
+    upper = tz_str.upper()
+    if upper in COMMON_TZ_ALIASES:
+        tz_str = COMMON_TZ_ALIASES[upper]
+
+    try:
+        return zoneinfo.ZoneInfo(tz_str)
+    except Exception:
+        pass
+
+    offset_match = re.match(
+        r"^(?:UTC|GMT)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$", tz_str, re.IGNORECASE
+    )
+    if offset_match:
+        sign = -1 if offset_match.group(1) == "-" else 1
+        hours = int(offset_match.group(2))
+        minutes = int(offset_match.group(3) or 0)
+        return timezone(sign * timedelta(hours=hours, minutes=minutes))
+
+    d_tz = tz.gettz(tz_str)
+    if d_tz is not None:
+        return d_tz
+
+    raise ValueError(f"Unknown or invalid timezone: '{tz_input}'")
 
 
 def get_config_dir() -> Path:
@@ -33,10 +99,6 @@ def get_tokens_path() -> Path:
 
 def get_config_path() -> Path:
     return get_config_dir() / "config.json"
-
-
-def get_credentials_path() -> Path:
-    return get_config_dir() / "credentials.json"
 
 
 def _write_secure_json(path: Path, data: dict[str, Any]) -> None:
@@ -80,16 +142,6 @@ def delete_tokens() -> bool:
     return False
 
 
-def save_credentials(creds: dict[str, Any]) -> None:
-    """Save client secrets/credentials JSON."""
-    _write_secure_json(get_credentials_path(), creds)
-
-
-def load_credentials() -> Optional[dict[str, Any]]:
-    """Load client secrets JSON."""
-    return _read_json(get_credentials_path())
-
-
 def save_config(config: dict[str, Any]) -> None:
     """Save user configuration settings."""
     _write_secure_json(get_config_path(), config)
@@ -99,6 +151,55 @@ def load_config() -> dict[str, Any]:
     """Load user configuration settings."""
     data = _read_json(get_config_path())
     return data if data is not None else {}
+
+
+def get_configured_timezone_name() -> Optional[str]:
+    """Retrieve the configured timezone name from config, or None if using machine local."""
+    cfg = load_config()
+    tz_val = cfg.get("timezone")
+    if tz_val and str(tz_val).strip() and str(tz_val).strip().lower() not in ("auto", "local", "system"):
+        return str(tz_val).strip()
+    return None
+
+
+def get_user_timezone(tz_override: Optional[str] = None) -> tzinfo:
+    """Retrieve the active timezone.
+
+    1. If tz_override is provided, use that.
+    2. If a timezone is saved in config, use that.
+    3. Otherwise, use the user's machine/system local timezone.
+    """
+    if tz_override:
+        return resolve_timezone(tz_override)
+    cfg_tz = get_configured_timezone_name()
+    if cfg_tz:
+        try:
+            return resolve_timezone(cfg_tz)
+        except Exception:
+            pass
+    return get_machine_timezone()
+
+
+def set_user_timezone(tz_name: Optional[str]) -> Optional[str]:
+    """Set or clear the user configured timezone.
+
+    If tz_name is None, empty, or 'auto'/'system'/'local', removes the configured timezone
+    so Nutrilog defaults to the machine's local timezone.
+    """
+    cfg = load_config()
+    if not tz_name or tz_name.strip().lower() in ("auto", "local", "system", "none", "clear"):
+        cfg.pop("timezone", None)
+        save_config(cfg)
+        return None
+
+    # Validate timezone
+    resolved = resolve_timezone(tz_name)
+    tz_cleaned = tz_name.strip()
+    upper = tz_cleaned.upper()
+    canonical_name = COMMON_TZ_ALIASES.get(upper, tz_cleaned)
+    cfg["timezone"] = canonical_name
+    save_config(cfg)
+    return canonical_name
 
 
 def get_daily_targets() -> DailyTarget:

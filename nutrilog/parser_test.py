@@ -1,10 +1,17 @@
-"""Unit tests for nutrilog.parser."""
-
 from datetime import datetime, timezone
+from pathlib import Path
 import pytest
 
 from nutrilog.models import MealType
 from nutrilog.parser import infer_meal_type, parse_shorthand, parse_time_str
+from nutrilog.storage import ENV_CONFIG_DIR
+
+
+@pytest.fixture(autouse=True)
+def temp_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    custom_dir = tmp_path / "nutrilog_test_config"
+    monkeypatch.setenv(ENV_CONFIG_DIR, str(custom_dir))
+    return custom_dir
 
 
 def test_infer_meal_type():
@@ -106,3 +113,13 @@ def test_parse_time_str():
     assert parsed_full.day == 17
     assert parsed_full.hour == 19
     assert parsed_full.minute == 45
+
+
+def test_parse_time_str_with_timezone():
+    from datetime import timedelta, timezone
+    aest = timezone(timedelta(hours=10))
+    base = datetime(2026, 8, 18, 0, 0, 0, tzinfo=aest)
+    parsed = parse_time_str("09:30", base_date=base, tz=aest)
+    assert parsed.hour == 9
+    assert parsed.minute == 30
+    assert parsed.tzinfo == aest

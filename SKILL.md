@@ -86,11 +86,14 @@ nutrilog rm <POINT_ID> -y
 ## 4. Configuration & Daily Targets
 
 ```bash
-# View current daily targets
+# View current daily targets and timezone configuration
 nutrilog config show
 
-# Update daily macro targets
-nutrilog config set --calories 2200 --protein 140 --carbs 220 --fat 65
+# Update daily macro targets and timezone
+nutrilog config set --calories 2200 --protein 140 --carbs 220 --fat 65 --timezone "Australia/Sydney"
+
+# Reset timezone to machine system local
+nutrilog config set --timezone auto
 ```
 
 ---
@@ -112,7 +115,7 @@ nutrilog auth login --remote
 # Sign out and clear stored tokens
 nutrilog auth logout
 
-# (Optional) Use custom GCP client credentials:
-nutrilog auth setup --client-id "<ID>" --client-secret "<SECRET>"
-nutrilog auth setup --file path/to/client_secrets.json
+# (Optional) Override with custom GCP OAuth client credentials:
+export NUTRILOG_CLIENT_ID="<YOUR_CLIENT_ID>"
+export NUTRILOG_CLIENT_SECRET="<YOUR_CLIENT_SECRET>"
 ```

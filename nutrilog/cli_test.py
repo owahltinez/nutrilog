@@ -31,7 +31,7 @@ def test_cli_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert "Nutrilog" in result.stdout
-    assert "0.1.6" in result.stdout
+    assert "0.1.7" in result.stdout
 
 
 def test_cli_dry_run_explicit_log_command(temp_config_dir: Path):
@@ -209,26 +209,6 @@ def test_cli_auth_status_and_logout(temp_config_dir: Path):
     assert "signed out" in result.stdout or "No active session" in result.stdout
 
 
-def test_cli_auth_setup_with_flags(temp_config_dir: Path):
-    result = runner.invoke(
-        app,
-        ["auth", "setup", "--client-id", "my-client-id", "--client-secret", "my-secret"],
-    )
-    assert result.exit_code == 0
-    assert "Saved client credentials successfully" in result.stdout
-
-
-def test_cli_auth_setup_with_file(temp_config_dir: Path, tmp_path: Path):
-    creds_file = tmp_path / "client_secrets.json"
-    creds_file.write_text(
-        json.dumps({"installed": {"client_id": "file-id", "client_secret": "file-sec"}}),
-        encoding="utf-8",
-    )
-    result = runner.invoke(app, ["auth", "setup", "--file", str(creds_file)])
-    assert result.exit_code == 0
-    assert "Saved client credentials from" in result.stdout
-
-
 def test_cli_auth_login_remote(temp_config_dir: Path):
     with patch("nutrilog.auth.login_remote") as mock_login_remote:
         result = runner.invoke(app, ["auth", "login", "--remote"])
@@ -238,12 +218,26 @@ def test_cli_auth_login_remote(temp_config_dir: Path):
 
 
 def test_cli_config_commands(temp_config_dir: Path):
-    result = runner.invoke(app, ["config", "set", "--calories", "2300", "--protein", "150"])
+    result = runner.invoke(app, ["config", "set", "--calories", "2300", "--protein", "150", "--timezone", "Australia/Sydney"])
     assert result.exit_code == 0
-    assert "2300 kcal" in result.stdout
-    assert "150.0g protein" in result.stdout
+    stdout_clean = " ".join(result.stdout.split())
+    assert "2300 kcal" in stdout_clean
+    assert "150.0g protein" in stdout_clean
+    assert "Timezone set to 'Australia/Sydney'" in stdout_clean
 
     result_show = runner.invoke(app, ["config", "show"])
     assert result_show.exit_code == 0
-    assert "2300 kcal" in result_show.stdout
-    assert "150.0 g" in result_show.stdout
+    show_clean = " ".join(result_show.stdout.split())
+    assert "2300 kcal" in show_clean
+    assert "150.0 g" in show_clean
+    assert "Australia/Sydney" in show_clean
+
+    # Test reset to auto
+    result_reset = runner.invoke(app, ["config", "set", "--timezone", "auto"])
+    assert result_reset.exit_code == 0
+    assert "reset to machine system local" in " ".join(result_reset.stdout.split())
+
+    # Test invalid timezone error
+    result_invalid = runner.invoke(app, ["config", "set", "--timezone", "Not/A/Valid/Timezone"])
+    assert result_invalid.exit_code == 1
+    assert "Invalid timezone" in result_invalid.output

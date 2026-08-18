@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 import json
 from pathlib import Path
 from typing import Optional
@@ -28,11 +28,14 @@ from nutrilog.models import (
 from nutrilog.parser import parse_shorthand, parse_time_str
 from nutrilog.storage import (
     get_config_dir,
+    get_configured_timezone_name,
     get_daily_targets,
+    get_machine_timezone,
+    get_user_timezone,
     load_config,
     save_config,
-    save_credentials,
     set_daily_targets,
+    set_user_timezone,
 )
 
 
@@ -71,11 +74,18 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def _render_meal_panel(meal: MealLog, title: str = "Logged to Google Health") -> None:
+def _render_meal_panel(meal: MealLog, title: str = "Logged to Google Health", tz: Optional[tzinfo] = None) -> None:
+    active_tz = tz or get_user_timezone()
+    try:
+        dt_parsed = date_parser_iso(meal.interval.startTime).astimezone(active_tz)
+        time_display = dt_parsed.strftime("%Y-%m-%d %I:%M %p")
+    except Exception:
+        time_display = meal.interval.startTime
+
     lines = [
         f"[bold cyan]Food:[/bold cyan] {meal.foodDisplayName}",
         f"[bold cyan]Meal:[/bold cyan] {meal.mealType.value.capitalize()}",
-        f"[bold cyan]Time:[/bold cyan] {meal.interval.startTime}",
+        f"[bold cyan]Time:[/bold cyan] {time_display}",
         f"[bold green]Protein:[/bold green] {meal.protein_g:.1f}g    "
         f"[bold yellow]Calories:[/bold yellow] {meal.calories_kcal:.0f} kcal    "
         f"[bold blue]Carbs:[/bold blue] {meal.carbs_g:.1f}g    "
@@ -108,13 +118,15 @@ def _log_meal_internal(
     time_str: Optional[str] = None,
     dry_run: bool = False,
     output_json: bool = False,
+    tz_override: Optional[str] = None,
 ) -> MealLog:
-    # 1. Base time
-    meal_time = parse_time_str(time_str) if time_str else datetime.now(timezone.utc)
+    active_tz = get_user_timezone(tz_override=tz_override)
+    # 1. Base time in active timezone
+    meal_time = parse_time_str(time_str, tz=active_tz) if time_str else datetime.now(active_tz)
     meal_type = MealType.from_string(meal_type_str) if meal_type_str else None
 
     # 2. Parse shorthand if provided
-    parsed = parse_shorthand(text or "", default_meal_type=meal_type, default_time=meal_time)
+    parsed = parse_shorthand(text or "", default_meal_type=meal_type, default_time=meal_time, tz=active_tz)
 
     # 3. Apply explicit flag overrides
     food_name = name or (parsed.name if parsed.name else (text if text and not any([protein, calories, carbs, fat]) else ""))
@@ -134,7 +146,7 @@ def _log_meal_internal(
     if final_meal_type == MealType.MEAL_TYPE_UNSPECIFIED:
         from nutrilog.parser import infer_meal_type
 
-        final_meal_type = infer_meal_type(meal_time)
+        final_meal_type = infer_meal_type(meal_time, tz=active_tz)
 
     if not food_name:
         food_name = final_meal_type.value.capitalize()
@@ -255,9 +267,10 @@ def quick_command(
 @app.command("today")
 def today_command():
     """Display today's meals and macronutrient progress against targets."""
+    active_tz = get_user_timezone()
     client = GoogleHealthClient()
     try:
-        meals = client.get_today_meals()
+        meals = client.get_today_meals(tz=active_tz)
     except GoogleHealthError as e:
         err_console.print(f"[bold yellow]Could not fetch today's meals:[/bold yellow] {e}")
         return
@@ -265,7 +278,7 @@ def today_command():
     summary = MacroSummary.from_meals(meals)
     targets = get_daily_targets()
 
-    now_str = datetime.now().strftime("%a, %b %d")
+    now_str = datetime.now(active_tz).strftime("%a, %b %d")
     table = Table(title=f"Today's Nutrition Summary ({now_str})", show_header=True, header_style="bold magenta")
     table.add_column("Time", style="dim", width=10)
     table.add_column("Meal Type", width=12)
@@ -280,7 +293,7 @@ def today_command():
     else:
         for m in meals:
             try:
-                t_dt = date_parser_iso(m.interval.startTime)
+                t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
                 t_str = t_dt.strftime("%I:%M %p")
             except Exception:
                 t_str = m.interval.startTime[:16]
@@ -323,8 +336,9 @@ def history_command(
     show_ids: bool = typer.Option(False, "--ids", help="Display Data Point IDs."),
 ):
     """View meal history across past days."""
+    active_tz = get_user_timezone()
     client = GoogleHealthClient()
-    start_dt = datetime.now(timezone.utc) - timedelta(days=days)
+    start_dt = datetime.now(active_tz) - timedelta(days=days)
     try:
         meals = client.list_meals(start_time=start_dt)
     except GoogleHealthError as e:
@@ -346,8 +360,13 @@ def history_command(
         row = []
         if show_ids:
             row.append(m.id or "-")
+        try:
+            t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
+            t_str = t_dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            t_str = m.interval.startTime[:16].replace("T", " ")
         row.extend([
-            m.interval.startTime[:16].replace("T", " "),
+            t_str,
             m.mealType.value.capitalize(),
             m.foodDisplayName,
             f"{m.protein_g:.1f}g",
@@ -367,9 +386,10 @@ def list_command(
     output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
 ):
     """List logged meals with IDs for inspection and deletion."""
+    active_tz = get_user_timezone()
     client = GoogleHealthClient()
-    start_dt = parse_time_str(start) if start else (datetime.now(timezone.utc) - timedelta(days=days))
-    end_dt = parse_time_str(end) if end else None
+    start_dt = parse_time_str(start, tz=active_tz) if start else (datetime.now(active_tz) - timedelta(days=days))
+    end_dt = parse_time_str(end, tz=active_tz) if end else None
 
     try:
         meals = client.list_meals(start_time=start_dt, end_time=end_dt)
@@ -395,9 +415,14 @@ def list_command(
         table.add_row("-", "-", "-", "No meals found for this timeframe", "0.0g", "0 kcal", "0.0g", "0.0g")
     else:
         for m in meals:
+            try:
+                t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
+                t_str = t_dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                t_str = m.interval.startTime[:16].replace("T", " ")
             table.add_row(
                 m.id or "-",
-                m.interval.startTime[:16].replace("T", " "),
+                t_str,
                 m.mealType.value.capitalize(),
                 m.foodDisplayName,
                 f"{m.protein_g:.1f}g",
@@ -486,7 +511,7 @@ def auth_status_cmd():
     if status.get("using_default_credentials"):
         table.add_row("OAuth Client", "Built-in Desktop App (Default)")
     else:
-        table.add_row("OAuth Client", "Custom (Configured)")
+        table.add_row("OAuth Client", "Custom (Environment Variables)")
     if status.get("expiry"):
         table.add_row("Token Expiry", str(status["expiry"]))
 
@@ -502,51 +527,26 @@ def auth_logout_cmd():
         console.print("[dim]No active session tokens to clear.[/dim]")
 
 
-@auth_app.command("setup")
-def auth_setup_cmd(
-    client_id: Optional[str] = typer.Option(None, "--client-id", help="OAuth 2.0 Desktop Client ID."),
-    client_secret: Optional[str] = typer.Option(None, "--client-secret", help="OAuth 2.0 Client Secret."),
-    secrets_file: Optional[Path] = typer.Option(None, "--file", "-f", help="Path to downloaded client_secrets.json."),
-):
-    """Save Google Cloud OAuth client credentials."""
-    if secrets_file and secrets_file.exists():
-        data = json.loads(secrets_file.read_text(encoding="utf-8"))
-        save_credentials(data)
-        console.print(f"[bold green]✓ Saved client credentials from {secrets_file}[/bold green]")
-        return
-
-    if client_id and client_secret:
-        data = {
-            "installed": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": ["http://localhost"],
-            }
-        }
-        save_credentials(data)
-        console.print("[bold green]✓ Saved client credentials successfully.[/bold green]")
-        return
-
-    console.print(
-        "[yellow]Please provide either --file <path/to/client_secrets.json> or --client-id and --client-secret.[/yellow]"
-    )
-
-
 # Config Subcommands
 @config_app.command("show")
 def config_show_cmd():
     """Display current nutrition targets and configuration."""
     targets = get_daily_targets()
-    table = Table(title="Daily Nutrition Targets", show_header=True)
-    table.add_column("Metric", style="bold cyan")
-    table.add_column("Target", justify="right")
+    cfg_tz = get_configured_timezone_name()
+    machine_tz = str(get_machine_timezone())
+
+    table = Table(title="Daily Nutrition Targets & Configuration", show_header=True)
+    table.add_column("Setting", style="bold cyan")
+    table.add_column("Value", justify="right")
 
     table.add_row("Calories", f"{targets.calories:.0f} kcal")
     table.add_row("Protein", f"{targets.protein:.1f} g")
     table.add_row("Carbohydrates", f"{targets.carbs:.1f} g" if targets.carbs is not None else "Not set")
     table.add_row("Fat", f"{targets.fat:.1f} g" if targets.fat is not None else "Not set")
+    if cfg_tz:
+        table.add_row("Timezone", f"{cfg_tz} (Configured)")
+    else:
+        table.add_row("Timezone", f"{machine_tz} (System Machine Default)")
 
     console.print(table)
 
@@ -557,9 +557,31 @@ def config_set_cmd(
     protein: Optional[float] = typer.Option(None, "--protein", "-p", help="Daily protein target (grams)."),
     carbs: Optional[float] = typer.Option(None, "--carbs", "-c", help="Daily carbohydrate target (grams)."),
     fat: Optional[float] = typer.Option(None, "--fat", "-f", help="Daily fat target (grams)."),
+    timezone_name: Optional[str] = typer.Option(
+        None,
+        "--timezone",
+        "-z",
+        help="Timezone (e.g. 'Australia/Sydney', 'AEST', 'America/Los_Angeles', or 'auto' to use machine local).",
+    ),
 ):
-    """Set daily nutrition targets."""
-    updated = set_daily_targets(calories=calories, protein=protein, carbs=carbs, fat=fat)
-    console.print(
-        f"[bold green]✓ Targets updated:[/bold green] {updated.calories:.0f} kcal, {updated.protein:.1f}g protein"
-    )
+    """Set daily nutrition targets and user preferences."""
+    messages = []
+    if any(x is not None for x in [calories, protein, carbs, fat]):
+        updated = set_daily_targets(calories=calories, protein=protein, carbs=carbs, fat=fat)
+        messages.append(f"Targets updated ({updated.calories:.0f} kcal, {updated.protein:.1f}g protein)")
+
+    if timezone_name is not None:
+        try:
+            saved_tz = set_user_timezone(timezone_name)
+            if saved_tz:
+                messages.append(f"Timezone set to '{saved_tz}'")
+            else:
+                messages.append("Timezone reset to machine system local")
+        except ValueError as e:
+            err_console.print(f"[bold red]Invalid timezone:[/bold red] {e}")
+            raise typer.Exit(code=1)
+
+    if messages:
+        console.print(f"[bold green]✓ Configuration updated:[/bold green] {', '.join(messages)}")
+    else:
+        console.print("[dim]No settings provided to update. Use --help to view available options.[/dim]")

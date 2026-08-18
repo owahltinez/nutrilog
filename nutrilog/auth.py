@@ -13,8 +13,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 from nutrilog.storage import (
     delete_tokens,
-    get_credentials_path,
-    load_credentials,
     load_tokens,
     save_tokens,
 )
@@ -67,8 +65,16 @@ def extract_auth_code(input_str: str) -> str:
     return cleaned
 
 
-def get_client_config() -> Optional[dict[str, Any]]:
-    """Retrieve client credentials from env vars, stored config, or packaged defaults."""
+def get_client_config(client_config_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    """Retrieve client credentials from explicit path, env vars, or packaged defaults."""
+    if client_config_path and client_config_path.exists():
+        import json
+
+        try:
+            return json.loads(client_config_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
     env_id = os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
     env_secret = os.getenv("NUTRILOG_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
     if env_id and env_secret:
@@ -81,19 +87,6 @@ def get_client_config() -> Optional[dict[str, Any]]:
                 "redirect_uris": ["http://localhost"],
             }
         }
-
-    saved = load_credentials()
-    if saved:
-        return saved
-
-    creds_path = get_credentials_path()
-    if creds_path.exists():
-        import json
-
-        try:
-            return json.loads(creds_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
 
     if DEFAULT_CLIENT_ID and DEFAULT_CLIENT_SECRET:
         return {
@@ -227,9 +220,7 @@ login_manual = login_remote
 def get_auth_status() -> dict[str, Any]:
     """Get the current authentication status and metadata."""
     creds = get_credentials()
-    has_custom = load_credentials() is not None or bool(
-        os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
-    )
+    has_custom = bool(os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID"))
     if not creds:
         return {
             "authenticated": False,

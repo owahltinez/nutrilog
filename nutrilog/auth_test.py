@@ -13,7 +13,7 @@ from nutrilog.auth import (
     login,
     logout,
 )
-from nutrilog.storage import ENV_CONFIG_DIR, save_credentials, save_tokens
+from nutrilog.storage import ENV_CONFIG_DIR, save_tokens
 
 
 @pytest.fixture
@@ -44,15 +44,18 @@ def test_get_client_config_default_fallback(monkeypatch: pytest.MonkeyPatch, tem
     assert "apps.googleusercontent.com" in config["installed"]["client_id"]
 
 
-def test_get_client_config_from_storage(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
+def test_get_client_config_from_explicit_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
     monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
 
-    stored = {"installed": {"client_id": "stored-id", "client_secret": "stored-secret"}}
-    save_credentials(stored)
-    assert get_client_config() == stored
+    import json
+    secret_file = tmp_path / "custom_secrets.json"
+    data = {"installed": {"client_id": "file-id", "client_secret": "file-secret"}}
+    secret_file.write_text(json.dumps(data), encoding="utf-8")
+
+    assert get_client_config(client_config_path=secret_file) == data
 
 
 def test_get_client_config_none_when_no_defaults(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):

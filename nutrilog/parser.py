@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 import re
 from typing import Optional
 from dateutil import parser as date_parser
@@ -18,9 +18,13 @@ from nutrilog.models import (
 )
 
 
-def infer_meal_type(dt: datetime) -> MealType:
-    """Infer meal type from a datetime."""
-    hour = dt.hour
+def infer_meal_type(dt: datetime, tz: Optional[tzinfo] = None) -> MealType:
+    """Infer meal type from a datetime's hour of the day."""
+    if tz is not None and dt.tzinfo is not None:
+        dt_local = dt.astimezone(tz)
+    else:
+        dt_local = dt
+    hour = dt_local.hour
     if 5 <= hour < 11:
         return MealType.BREAKFAST
     elif 11 <= hour < 15:
@@ -46,7 +50,11 @@ class ParsedMacros:
         sodium: float = 0.0,
         meal_type: Optional[MealType] = None,
         timestamp: Optional[datetime] = None,
+        tz: Optional[tzinfo] = None,
     ):
+        from nutrilog.storage import get_user_timezone
+
+        self.active_tz = tz or get_user_timezone()
         self.name = name.strip()
         self.protein = protein
         self.fat = fat
@@ -56,7 +64,7 @@ class ParsedMacros:
         self.sugar = sugar
         self.sodium = sodium
         self.meal_type = meal_type
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.timestamp = timestamp or datetime.now(self.active_tz)
 
         # If calories not provided but macros are, estimate calories
         if self.calories <= 0 and (self.protein > 0 or self.carbs > 0 or self.fat > 0):
@@ -64,8 +72,8 @@ class ParsedMacros:
 
     def to_meal_log(self) -> MealLog:
         """Convert parsed macros to a MealLog object."""
-        dt = self.timestamp or datetime.now(timezone.utc)
-        meal_type = self.meal_type or infer_meal_type(dt)
+        dt = self.timestamp or datetime.now(self.active_tz)
+        meal_type = self.meal_type or infer_meal_type(dt, tz=self.active_tz)
         name = self.name or meal_type.value.capitalize()
 
         nutrients: list[NutrientEntry] = []
@@ -132,6 +140,7 @@ def parse_shorthand(
     text: str,
     default_meal_type: Optional[MealType] = None,
     default_time: Optional[datetime] = None,
+    tz: Optional[tzinfo] = None,
 ) -> ParsedMacros:
     """Parse shorthand nutrition strings like:
     - '38p 18f 54c 580k Tofu Edamame Soba Bowl'
@@ -140,9 +149,12 @@ def parse_shorthand(
     - 'p38.5 f18 c54.2 580cal Protein Bowl'
     - '35p 600k'
     """
+    from nutrilog.storage import get_user_timezone
+
+    active_tz = tz or get_user_timezone()
     cleaned = text.strip()
     if not cleaned:
-        return ParsedMacros(meal_type=default_meal_type, timestamp=default_time)
+        return ParsedMacros(meal_type=default_meal_type, timestamp=default_time, tz=active_tz)
 
     protein = 0.0
     fat = 0.0
@@ -242,13 +254,21 @@ def parse_shorthand(
         sodium=sodium,
         meal_type=default_meal_type,
         timestamp=default_time,
+        tz=active_tz,
     )
 
 
-def parse_time_str(time_str: str, base_date: Optional[datetime] = None) -> datetime:
+def parse_time_str(
+    time_str: str,
+    base_date: Optional[datetime] = None,
+    tz: Optional[tzinfo] = None,
+) -> datetime:
     """Parse time/date strings like '12:30', '1:00pm', '2026-08-17 12:30', 'today 12pm'."""
-    now = base_date or datetime.now(timezone.utc)
+    from nutrilog.storage import get_user_timezone
+
+    active_tz = tz or get_user_timezone()
+    now = base_date or datetime.now(active_tz)
     parsed = date_parser.parse(time_str, default=now)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=active_tz)
     return parsed

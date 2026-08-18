@@ -214,20 +214,13 @@ nutrilog auth logout
 
 ### 2. Custom GCP Credentials (Optional / Advanced)
 
-If you prefer to use your own Google Cloud Project:
+If you prefer to use your own Google Cloud Project instead of the built-in desktop app:
 
 1. Create a project in [Google Cloud Console](https://console.cloud.google.com) and enable the **Google Health API**.
 2. Under **Credentials**, create an **OAuth client ID** of type **Desktop App**.
-3. Configure Nutrilog with your credentials:
+3. Set your environment variables:
 
 ```bash
-# Option A: Import client_secrets.json file
-nutrilog auth setup --file path/to/client_secrets.json
-
-# Option B: Pass credentials via CLI flags
-nutrilog auth setup --client-id "<YOUR_CLIENT_ID>" --client-secret "<YOUR_CLIENT_SECRET>"
-
-# Option C: Use environment variables
 export NUTRILOG_CLIENT_ID="<YOUR_CLIENT_ID>"
 export NUTRILOG_CLIENT_SECRET="<YOUR_CLIENT_SECRET>"
 ```

@@ -1,3 +1,3 @@
-"""Nutrilog - Log meals, macronutrients, and calories directly to Google Health."""
+"""Nutrilog - Google Health Nutrition Logging CLI."""
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"

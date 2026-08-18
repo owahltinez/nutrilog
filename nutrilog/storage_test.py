@@ -11,10 +11,8 @@ from nutrilog.storage import (
     get_config_dir,
     get_daily_targets,
     load_config,
-    load_credentials,
     load_tokens,
     save_config,
-    save_credentials,
     save_tokens,
     set_daily_targets,
 )
@@ -60,16 +58,6 @@ def test_save_and_load_tokens(temp_config_dir: Path):
     assert delete_tokens() is False
 
 
-def test_save_and_load_credentials(temp_config_dir: Path):
-    assert load_credentials() is None
-
-    creds = {"installed": {"client_id": "cid", "client_secret": "csec"}}
-    save_credentials(creds)
-
-    loaded = load_credentials()
-    assert loaded == creds
-
-
 def test_daily_targets_config(temp_config_dir: Path):
     targets = get_daily_targets()
     assert targets.calories == 2000.0
@@ -87,3 +75,43 @@ def test_daily_targets_config(temp_config_dir: Path):
     assert reloaded.protein == 140.0
     assert reloaded.carbs == 250.0
     assert reloaded.fat == 60.0
+
+
+def test_timezone_storage_and_resolution(temp_config_dir: Path):
+    from datetime import timedelta, timezone
+    from nutrilog.storage import (
+        get_configured_timezone_name,
+        get_machine_timezone,
+        get_user_timezone,
+        resolve_timezone,
+        set_user_timezone,
+    )
+
+    # Defaults to machine timezone when not set
+    assert get_configured_timezone_name() is None
+    assert get_user_timezone() == get_machine_timezone()
+
+    # Resolve common aliases
+    syd = resolve_timezone("AEST")
+    assert str(syd) == "Australia/Sydney"
+
+    ny = resolve_timezone("America/New_York")
+    assert str(ny) == "America/New_York"
+
+    offset_tz = resolve_timezone("UTC+10")
+    assert offset_tz == timezone(timedelta(hours=10))
+
+    # Set timezone in config
+    saved = set_user_timezone("Australia/Sydney")
+    assert saved == "Australia/Sydney"
+    assert get_configured_timezone_name() == "Australia/Sydney"
+    assert str(get_user_timezone()) == "Australia/Sydney"
+
+    # Reset to auto/machine local
+    set_user_timezone("auto")
+    assert get_configured_timezone_name() is None
+    assert get_user_timezone() == get_machine_timezone()
+
+    # Invalid timezone raises ValueError
+    with pytest.raises(ValueError, match="Unknown or invalid timezone"):
+        resolve_timezone("Invalid/NonExistentZone")
