@@ -38,9 +38,6 @@ nutrilog log "Grilled Barramundi & Veggies" \
   --fat 14 \
   --carbs 12 \
   --meal lunch
-
-# Quick macro top-up (e.g. snack, protein shake)
-nutrilog quick --protein 25 --calories 180 --name "Protein Shake"
 ```
 
 ### Dry Run & JSON Output
@@ -83,14 +80,15 @@ nutrilog rm <POINT_ID> -y
 
 ---
 
-## 4. Configuration & Daily Targets
+## 4. Configuration & Timezone
 
 ```bash
-# View current daily targets and timezone configuration
+# View current timezone configuration
 nutrilog config show
 
-# Update daily macro targets and timezone
-nutrilog config set --calories 2200 --protein 140 --carbs 220 --fat 65 --timezone "Australia/Sydney"
+# Set active timezone
+nutrilog config set --timezone "Australia/Sydney"
+nutrilog config set -z AEST
 
 # Reset timezone to machine system local
 nutrilog config set --timezone auto

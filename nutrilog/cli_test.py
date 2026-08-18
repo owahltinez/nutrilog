@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from nutrilog import __version__
 from nutrilog.cli import app
 from nutrilog.models import (
     Energy,
@@ -31,7 +32,7 @@ def test_cli_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert "Nutrilog" in result.stdout
-    assert "0.1.7" in result.stdout
+    assert __version__ in result.stdout
 
 
 def test_cli_dry_run_explicit_log_command(temp_config_dir: Path):
@@ -86,17 +87,6 @@ def test_cli_explicit_flags(temp_config_dir: Path):
     assert "36.0g" in result.stdout
     assert "480 kcal" in result.stdout
     assert "Lunch" in result.stdout
-
-
-def test_cli_quick_command(temp_config_dir: Path):
-    result = runner.invoke(
-        app,
-        ["quick", "--protein", "25", "--calories", "180", "--name", "Post-Workout", "--dry-run"],
-    )
-    assert result.exit_code == 0
-    assert "Post-Workout" in result.stdout
-    assert "25.0g" in result.stdout
-    assert "180 kcal" in result.stdout
 
 
 def test_cli_today_command(temp_config_dir: Path):
@@ -159,7 +149,7 @@ def test_cli_list_command(temp_config_dir: Path):
     with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]):
         result = runner.invoke(app, ["list", "--days", "2"])
         assert result.exit_code == 0
-        assert "Logged Meals" in result.stdout
+        assert "Meal History" in result.stdout
         assert "dp-999" in result.stdout
         assert "Protein" in result.stdout
 
@@ -218,18 +208,14 @@ def test_cli_auth_login_remote(temp_config_dir: Path):
 
 
 def test_cli_config_commands(temp_config_dir: Path):
-    result = runner.invoke(app, ["config", "set", "--calories", "2300", "--protein", "150", "--timezone", "Australia/Sydney"])
+    result = runner.invoke(app, ["config", "set", "--timezone", "Australia/Sydney"])
     assert result.exit_code == 0
     stdout_clean = " ".join(result.stdout.split())
-    assert "2300 kcal" in stdout_clean
-    assert "150.0g protein" in stdout_clean
     assert "Timezone set to 'Australia/Sydney'" in stdout_clean
 
     result_show = runner.invoke(app, ["config", "show"])
     assert result_show.exit_code == 0
     show_clean = " ".join(result_show.stdout.split())
-    assert "2300 kcal" in show_clean
-    assert "150.0 g" in show_clean
     assert "Australia/Sydney" in show_clean
 
     # Test reset to auto

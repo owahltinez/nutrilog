@@ -29,12 +29,10 @@ from nutrilog.parser import parse_shorthand, parse_time_str
 from nutrilog.storage import (
     get_config_dir,
     get_configured_timezone_name,
-    get_daily_targets,
     get_machine_timezone,
     get_user_timezone,
     load_config,
     save_config,
-    set_daily_targets,
     set_user_timezone,
 )
 
@@ -242,28 +240,6 @@ def log_command(
     )
 
 
-@app.command("quick")
-def quick_command(
-    protein: float = typer.Option(..., "--protein", "-p", help="Protein in grams."),
-    calories: Optional[float] = typer.Option(None, "--calories", "-k", help="Calories in kcal."),
-    carbs: float = typer.Option(0.0, "--carbs", "-c", help="Carbs in grams."),
-    fat: float = typer.Option(0.0, "--fat", "-f", help="Fat in grams."),
-    name: str = typer.Option("Quick Log", "--name", "-n", help="Display name for this entry."),
-    meal: Optional[str] = typer.Option(None, "--meal", "-m", help="Meal type."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without uploading."),
-):
-    """Quickly log protein and calories (e.g. protein shake, snack)."""
-    _log_meal_internal(
-        name=name,
-        protein=protein,
-        calories=calories,
-        carbs=carbs,
-        fat=fat,
-        meal_type_str=meal,
-        dry_run=dry_run,
-    )
-
-
 @app.command("today")
 def today_command():
     """Display today's meals and macronutrient progress against targets."""
@@ -276,7 +252,6 @@ def today_command():
         return
 
     summary = MacroSummary.from_meals(meals)
-    targets = get_daily_targets()
 
     now_str = datetime.now(active_tz).strftime("%a, %b %d")
     table = Table(title=f"Today's Nutrition Summary ({now_str})", show_header=True, header_style="bold magenta")
@@ -309,17 +284,11 @@ def today_command():
 
     console.print(table)
 
-    # Progress rollups
-    p_pct = (summary.total_protein / targets.protein * 100.0) if targets.protein > 0 else 0
-    k_pct = (summary.total_calories / targets.calories * 100.0) if targets.calories > 0 else 0
-
-    p_rem = max(0.0, targets.protein - summary.total_protein)
-    k_rem = max(0.0, targets.calories - summary.total_calories)
-
     summary_panel = (
-        f"[bold]Daily Total:[/bold] {summary.total_protein:.1f}g / {targets.protein:.0f}g Protein ([green]{p_pct:.0f}%[/green]) | "
-        f"{summary.total_calories:.0f} / {targets.calories:.0f} kcal ([yellow]{k_pct:.0f}%[/yellow])\n"
-        f"[bold]Remaining:[/bold]   {p_rem:.1f}g Protein | {k_rem:.0f} kcal"
+        f"[bold]Daily Total Consumed:[/bold] {summary.total_protein:.1f}g Protein | "
+        f"{summary.total_calories:.0f} kcal | "
+        f"{summary.total_carbs:.1f}g Carbs | "
+        f"{summary.total_fat:.1f}g Fat"
     )
     console.print(Panel(summary_panel, border_style="cyan"))
 
@@ -333,19 +302,28 @@ def date_parser_iso(s: str) -> datetime:
 @app.command("history")
 def history_command(
     days: int = typer.Option(7, "--days", "-d", help="Number of past days to query."),
+    start: Optional[str] = typer.Option(None, "--start", "-s", help="Start time / date filter (e.g. '2026-08-17')."),
+    end: Optional[str] = typer.Option(None, "--end", "-e", help="End time / date filter."),
     show_ids: bool = typer.Option(False, "--ids", help="Display Data Point IDs."),
+    output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
 ):
     """View meal history across past days."""
     active_tz = get_user_timezone()
     client = GoogleHealthClient()
-    start_dt = datetime.now(active_tz) - timedelta(days=days)
+    start_dt = parse_time_str(start, tz=active_tz) if start else (datetime.now(active_tz) - timedelta(days=days))
+    end_dt = parse_time_str(end, tz=active_tz) if end else None
+
     try:
-        meals = client.list_meals(start_time=start_dt)
+        meals = client.list_meals(start_time=start_dt, end_time=end_dt)
     except GoogleHealthError as e:
         err_console.print(f"[bold red]Failed to fetch history:[/bold red] {e}")
         raise typer.Exit(code=1)
 
-    table = Table(title=f"Meal History (Past {days} Days)", show_header=True)
+    if output_json:
+        console.print_json(data=[m.to_api_payload() for m in meals])
+        return
+
+    table = Table(title=f"Meal History ({len(meals)} total)", show_header=True)
     if show_ids:
         table.add_column("Point ID", style="dim", max_width=20)
     table.add_column("Date/Time", style="dim")
@@ -356,72 +334,21 @@ def history_command(
     table.add_column("Carbs", justify="right", style="blue")
     table.add_column("Fat", justify="right", style="magenta")
 
-    for m in meals:
-        row = []
-        if show_ids:
-            row.append(m.id or "-")
-        try:
-            t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
-            t_str = t_dt.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            t_str = m.interval.startTime[:16].replace("T", " ")
-        row.extend([
-            t_str,
-            m.mealType.value.capitalize(),
-            m.foodDisplayName,
-            f"{m.protein_g:.1f}g",
-            f"{m.calories_kcal:.0f} kcal",
-            f"{m.carbs_g:.1f}g",
-            f"{m.fat_g:.1f}g",
-        ])
-        table.add_row(*row)
-    console.print(table)
-
-
-@app.command("list")
-def list_command(
-    days: int = typer.Option(1, "--days", "-d", help="Number of days to query (default 1)."),
-    start: Optional[str] = typer.Option(None, "--start", help="Start time / date filter."),
-    end: Optional[str] = typer.Option(None, "--end", help="End time / date filter."),
-    output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
-):
-    """List logged meals with IDs for inspection and deletion."""
-    active_tz = get_user_timezone()
-    client = GoogleHealthClient()
-    start_dt = parse_time_str(start, tz=active_tz) if start else (datetime.now(active_tz) - timedelta(days=days))
-    end_dt = parse_time_str(end, tz=active_tz) if end else None
-
-    try:
-        meals = client.list_meals(start_time=start_dt, end_time=end_dt)
-    except GoogleHealthError as e:
-        err_console.print(f"[bold red]Failed to fetch meals:[/bold red] {e}")
-        raise typer.Exit(code=1)
-
-    if output_json:
-        console.print_json(data=[m.to_api_payload() for m in meals])
-        return
-
-    table = Table(title=f"Logged Meals ({len(meals)} total)", show_header=True)
-    table.add_column("Point ID", style="dim")
-    table.add_column("Date/Time", style="cyan")
-    table.add_column("Type", width=10)
-    table.add_column("Food", style="bold", min_width=15)
-    table.add_column("Protein", justify="right", style="green")
-    table.add_column("Calories", justify="right", style="yellow")
-    table.add_column("Carbs", justify="right", style="blue")
-    table.add_column("Fat", justify="right", style="magenta")
-
     if not meals:
-        table.add_row("-", "-", "-", "No meals found for this timeframe", "0.0g", "0 kcal", "0.0g", "0.0g")
+        row = ["-"] if show_ids else []
+        row.extend(["-", "-", "No meals found for this timeframe", "0.0g", "0 kcal", "0.0g", "0.0g"])
+        table.add_row(*row)
     else:
         for m in meals:
+            row = []
+            if show_ids:
+                row.append(m.id or "-")
             try:
                 t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
                 t_str = t_dt.strftime("%Y-%m-%d %H:%M")
             except Exception:
                 t_str = m.interval.startTime[:16].replace("T", " ")
-            table.add_row(
-                m.id or "-",
+            row.extend([
                 t_str,
                 m.mealType.value.capitalize(),
                 m.foodDisplayName,
@@ -429,8 +356,21 @@ def list_command(
                 f"{m.calories_kcal:.0f} kcal",
                 f"{m.carbs_g:.1f}g",
                 f"{m.fat_g:.1f}g",
-            )
+            ])
+            table.add_row(*row)
     console.print(table)
+
+
+@app.command("list", hidden=True)
+def list_command(
+    days: int = typer.Option(1, "--days", "-d", help="Number of days to query (default 1)."),
+    start: Optional[str] = typer.Option(None, "--start", help="Start time / date filter."),
+    end: Optional[str] = typer.Option(None, "--end", help="End time / date filter."),
+    show_ids: bool = typer.Option(True, "--ids", help="Display Data Point IDs."),
+    output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
+):
+    """Alias for 'history' (kept for backward-compatibility)."""
+    history_command(days=days, start=start, end=end, show_ids=show_ids, output_json=output_json)
 
 
 @app.command("delete")
@@ -530,19 +470,15 @@ def auth_logout_cmd():
 # Config Subcommands
 @config_app.command("show")
 def config_show_cmd():
-    """Display current nutrition targets and configuration."""
-    targets = get_daily_targets()
+    """Display current Nutrilog configuration."""
     cfg_tz = get_configured_timezone_name()
     machine_tz = str(get_machine_timezone())
 
-    table = Table(title="Daily Nutrition Targets & Configuration", show_header=True)
+    table = Table(title="Nutrilog Configuration", show_header=True)
     table.add_column("Setting", style="bold cyan")
     table.add_column("Value", justify="right")
 
-    table.add_row("Calories", f"{targets.calories:.0f} kcal")
-    table.add_row("Protein", f"{targets.protein:.1f} g")
-    table.add_row("Carbohydrates", f"{targets.carbs:.1f} g" if targets.carbs is not None else "Not set")
-    table.add_row("Fat", f"{targets.fat:.1f} g" if targets.fat is not None else "Not set")
+    table.add_row("Config Directory", str(get_config_dir()))
     if cfg_tz:
         table.add_row("Timezone", f"{cfg_tz} (Configured)")
     else:
@@ -553,10 +489,6 @@ def config_show_cmd():
 
 @config_app.command("set")
 def config_set_cmd(
-    calories: Optional[float] = typer.Option(None, "--calories", "-k", help="Daily calorie target (kcal)."),
-    protein: Optional[float] = typer.Option(None, "--protein", "-p", help="Daily protein target (grams)."),
-    carbs: Optional[float] = typer.Option(None, "--carbs", "-c", help="Daily carbohydrate target (grams)."),
-    fat: Optional[float] = typer.Option(None, "--fat", "-f", help="Daily fat target (grams)."),
     timezone_name: Optional[str] = typer.Option(
         None,
         "--timezone",
@@ -564,24 +496,17 @@ def config_set_cmd(
         help="Timezone (e.g. 'Australia/Sydney', 'AEST', 'America/Los_Angeles', or 'auto' to use machine local).",
     ),
 ):
-    """Set daily nutrition targets and user preferences."""
-    messages = []
-    if any(x is not None for x in [calories, protein, carbs, fat]):
-        updated = set_daily_targets(calories=calories, protein=protein, carbs=carbs, fat=fat)
-        messages.append(f"Targets updated ({updated.calories:.0f} kcal, {updated.protein:.1f}g protein)")
-
-    if timezone_name is not None:
-        try:
-            saved_tz = set_user_timezone(timezone_name)
-            if saved_tz:
-                messages.append(f"Timezone set to '{saved_tz}'")
-            else:
-                messages.append("Timezone reset to machine system local")
-        except ValueError as e:
-            err_console.print(f"[bold red]Invalid timezone:[/bold red] {e}")
-            raise typer.Exit(code=1)
-
-    if messages:
-        console.print(f"[bold green]✓ Configuration updated:[/bold green] {', '.join(messages)}")
-    else:
+    """Set user configuration settings."""
+    if timezone_name is None:
         console.print("[dim]No settings provided to update. Use --help to view available options.[/dim]")
+        return
+
+    try:
+        saved_tz = set_user_timezone(timezone_name)
+        if saved_tz:
+            console.print(f"[bold green]✓ Configuration updated:[/bold green] Timezone set to '{saved_tz}'")
+        else:
+            console.print("[bold green]✓ Configuration updated:[/bold green] Timezone reset to machine system local")
+    except ValueError as e:
+        err_console.print(f"[bold red]Invalid timezone:[/bold red] {e}")
+        raise typer.Exit(code=1)

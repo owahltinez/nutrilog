@@ -3,7 +3,6 @@
 from datetime import datetime, timezone
 import pytest
 from nutrilog.models import (
-    DailyTarget,
     Energy,
     GramsQuantity,
     MacroSummary,
@@ -124,11 +123,3 @@ def test_macro_summary():
     assert summary.total_carbs == 80
     assert summary.total_fat == 30
     assert summary.total_fiber == 9
-
-
-def test_daily_target_defaults():
-    target = DailyTarget()
-    assert target.calories == 2000.0
-    assert target.protein == 120.0
-    assert target.carbs is None
-    assert target.fat is None

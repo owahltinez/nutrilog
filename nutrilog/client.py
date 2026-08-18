@@ -134,7 +134,7 @@ class GoogleHealthClient:
                             continue
                         if end_time and meal_start > end_time:
                             continue
-                    except Exception:
+                    except (ValueError, TypeError):
                         pass
                     meals.append(meal)
                 return meals

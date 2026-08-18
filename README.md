@@ -115,9 +115,6 @@ nutrilog log "Grilled Barramundi & Veggies" \
   --carbs 12 \
   --meal lunch
 
-# Quick macro top-up (e.g. protein shake, snack)
-nutrilog quick --protein 25 --calories 180 --name "Post-Workout Protein Shake"
-
 # Dry run (preview payload without sending)
 nutrilog "35p 450k Protein Shake" --dry-run
 
@@ -130,7 +127,7 @@ nutrilog "35p 450k Protein Shake" --json
 ### 3. Reviewing Today's Totals, History & Listing Meals
 
 ```bash
-# View today's rollup vs daily targets
+# View today's total consumed nutrition
 nutrilog today
 
 # List recent meals with their Data Point IDs
@@ -158,14 +155,18 @@ nutrilog rm <DATA_POINT_ID> -y
 
 ---
 
-### 5. Configuring Daily Nutrition Targets
+### 5. Configuration & Timezone
 
 ```bash
-# Display active daily targets
+# Display active configuration
 nutrilog config show
 
-# Set custom daily macro and calorie targets
-nutrilog config set --calories 2200 --protein 140 --carbs 220 --fat 65
+# Set active timezone
+nutrilog config set --timezone "Australia/Sydney"
+nutrilog config set -z AEST
+
+# Reset timezone to machine system local
+nutrilog config set --timezone auto
 ```
 
 ---

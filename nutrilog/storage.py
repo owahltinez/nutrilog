@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any, Optional, Union
 from dateutil import tz
 
-from nutrilog.models import DailyTarget
-
 ENV_CONFIG_DIR = "NUTRILOG_CONFIG_DIR"
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "nutrilog"
 
@@ -193,45 +191,10 @@ def set_user_timezone(tz_name: Optional[str]) -> Optional[str]:
         return None
 
     # Validate timezone
-    resolved = resolve_timezone(tz_name)
+    resolve_timezone(tz_name)
     tz_cleaned = tz_name.strip()
     upper = tz_cleaned.upper()
     canonical_name = COMMON_TZ_ALIASES.get(upper, tz_cleaned)
     cfg["timezone"] = canonical_name
     save_config(cfg)
     return canonical_name
-
-
-def get_daily_targets() -> DailyTarget:
-    """Retrieve saved daily nutrition targets or defaults."""
-    cfg = load_config()
-    targets = cfg.get("targets", {})
-    return DailyTarget(
-        calories=float(targets.get("calories", 2000.0)),
-        protein=float(targets.get("protein", 120.0)),
-        carbs=float(targets["carbs"]) if targets.get("carbs") is not None else None,
-        fat=float(targets["fat"]) if targets.get("fat") is not None else None,
-    )
-
-
-def set_daily_targets(
-    calories: Optional[float] = None,
-    protein: Optional[float] = None,
-    carbs: Optional[float] = None,
-    fat: Optional[float] = None,
-) -> DailyTarget:
-    """Update saved daily nutrition targets."""
-    cfg = load_config()
-    targets = cfg.get("targets", {})
-    if calories is not None:
-        targets["calories"] = calories
-    if protein is not None:
-        targets["protein"] = protein
-    if carbs is not None:
-        targets["carbs"] = carbs
-    if fat is not None:
-        targets["fat"] = fat
-
-    cfg["targets"] = targets
-    save_config(cfg)
-    return get_daily_targets()

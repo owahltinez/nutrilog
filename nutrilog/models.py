@@ -258,13 +258,6 @@ class MealLog(BaseModel):
         )
 
 
-class DailyTarget(BaseModel):
-    calories: float = 2000.0
-    protein: float = 120.0
-    carbs: Optional[float] = None
-    fat: Optional[float] = None
-
-
 class MacroSummary(BaseModel):
     total_calories: float = 0.0
     total_protein: float = 0.0

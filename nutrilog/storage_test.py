@@ -9,12 +9,10 @@ from nutrilog.storage import (
     ENV_CONFIG_DIR,
     delete_tokens,
     get_config_dir,
-    get_daily_targets,
     load_config,
     load_tokens,
     save_config,
     save_tokens,
-    set_daily_targets,
 )
 
 
@@ -56,25 +54,6 @@ def test_save_and_load_tokens(temp_config_dir: Path):
     assert delete_tokens() is True
     assert load_tokens() is None
     assert delete_tokens() is False
-
-
-def test_daily_targets_config(temp_config_dir: Path):
-    targets = get_daily_targets()
-    assert targets.calories == 2000.0
-    assert targets.protein == 120.0
-
-    updated = set_daily_targets(calories=2200.0, protein=140.0, carbs=250.0, fat=60.0)
-    assert updated.calories == 2200.0
-    assert updated.protein == 140.0
-    assert updated.carbs == 250.0
-    assert updated.fat == 60.0
-
-    # Ensure persistence
-    reloaded = get_daily_targets()
-    assert reloaded.calories == 2200.0
-    assert reloaded.protein == 140.0
-    assert reloaded.carbs == 250.0
-    assert reloaded.fat == 60.0
 
 
 def test_timezone_storage_and_resolution(temp_config_dir: Path):
