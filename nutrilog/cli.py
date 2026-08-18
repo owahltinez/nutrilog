@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import datetime, time, timedelta, timezone, tzinfo
 import json
 from pathlib import Path
 from typing import Optional
 import typer
-import typer.core
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -37,27 +36,10 @@ from nutrilog.storage import (
 )
 
 
-class NutrilogGroup(typer.core.TyperGroup):
-    """Custom TyperGroup that routes unhandled positional arguments directly to 'log'."""
-
-    def resolve_command(self, ctx, args):
-        if not args:
-            return super().resolve_command(ctx, args)
-        cmd_name = args[0]
-        cmd = self.get_command(ctx, cmd_name)
-        if cmd is not None:
-            return cmd_name, cmd, args[1:]
-        if cmd_name.startswith("-"):
-            return super().resolve_command(ctx, args)
-        log_cmd = self.get_command(ctx, "log")
-        return "log", log_cmd, args
-
-
 app = typer.Typer(
-    cls=NutrilogGroup,
     name="nutrilog",
     help="Fast, privacy-first CLI tool for logging nutrition directly to Google Health.",
-    invoke_without_command=True,
+    no_args_is_help=True,
 )
 auth_app = typer.Typer(help="Manage OAuth 2.0 authentication and credentials.")
 config_app = typer.Typer(help="Manage user preferences and daily macro targets.")
@@ -70,6 +52,48 @@ app.add_typer(skill_app, name="skill")
 
 console = Console()
 err_console = Console(stderr=True)
+
+
+def date_parser_iso(s: str) -> datetime:
+    from dateutil import parser
+
+    return parser.parse(s)
+
+
+def resolve_date_range(
+    date_str: Optional[str] = None,
+    days: Optional[int] = None,
+    tz: tzinfo = timezone.utc,
+) -> tuple[datetime, datetime, str]:
+    """Resolve start/end datetime boundaries and title label for queries."""
+    today = datetime.now(tz).date()
+    if days is not None:
+        days_count = max(1, days)
+        start_date = today - timedelta(days=days_count - 1)
+        start_dt = datetime.combine(start_date, time.min, tzinfo=tz)
+        end_dt = datetime.combine(today, time.max, tzinfo=tz)
+        title_label = f"Past {days_count} Days" if days_count > 1 else "Today"
+        return start_dt, end_dt, title_label
+
+    if date_str:
+        s = date_str.strip().lower()
+        if s in ("today", "t"):
+            target_date = today
+            title_label = "Today"
+        elif s in ("yesterday", "y"):
+            target_date = today - timedelta(days=1)
+            title_label = "Yesterday"
+        else:
+            target_date = date_parser_iso(date_str).date()
+            title_label = target_date.strftime("%a, %b %d")
+        start_dt = datetime.combine(target_date, time.min, tzinfo=tz)
+        end_dt = datetime.combine(target_date, time.max, tzinfo=tz)
+        return start_dt, end_dt, title_label
+
+    # Default: today
+    start_dt = datetime.combine(today, time.min, tzinfo=tz)
+    end_dt = datetime.combine(today, time.max, tzinfo=tz)
+    return start_dt, end_dt, "Today"
 
 
 def _render_meal_panel(meal: MealLog, title: str = "Logged to Google Health", tz: Optional[tzinfo] = None) -> None:
@@ -118,15 +142,23 @@ def _log_meal_internal(
     output_json: bool = False,
     tz_override: Optional[str] = None,
 ) -> MealLog:
-    active_tz = get_user_timezone(tz_override=tz_override)
-    # 1. Base time in active timezone
-    meal_time = parse_time_str(time_str, tz=active_tz) if time_str else datetime.now(active_tz)
-    meal_type = MealType.from_string(meal_type_str) if meal_type_str else None
+    """Core logic to construct, validate, and upload a MealLog."""
+    active_tz = get_user_timezone()
 
-    # 2. Parse shorthand if provided
-    parsed = parse_shorthand(text or "", default_meal_type=meal_type, default_time=meal_time, tz=active_tz)
+    parsed = parse_shorthand(text or "", tz=active_tz)
 
-    # 3. Apply explicit flag overrides
+    meal_type = None
+    if meal_type_str:
+        meal_type = MealType.from_string(meal_type_str)
+
+    meal_time = None
+    if time_str:
+        meal_time = parse_time_str(time_str, tz=active_tz)
+    elif parsed.timestamp:
+        meal_time = parsed.timestamp
+    else:
+        meal_time = datetime.now(active_tz)
+
     food_name = name or (parsed.name if parsed.name else (text if text and not any([protein, calories, carbs, fat]) else ""))
     if not food_name and parsed.name:
         food_name = parsed.name
@@ -175,18 +207,42 @@ def _log_meal_internal(
         nutrients=nutrients,
     )
 
-    if output_json:
-        console.print_json(data=meal_log.to_api_payload())
-        return meal_log
-
     if dry_run:
-        _render_meal_panel(meal_log, title="Dry Run (Not Sent to Google Health)")
+        if output_json:
+            meal_dict = {
+                "id": meal_log.id,
+                "time": meal_log.interval.startTime,
+                "meal_type": meal_log.mealType.value,
+                "name": meal_log.foodDisplayName,
+                "protein_g": meal_log.protein_g,
+                "calories_kcal": meal_log.calories_kcal,
+                "carbs_g": meal_log.carbs_g,
+                "fat_g": meal_log.fat_g,
+                "fiber_g": meal_log.fiber_g,
+            }
+            console.print_json(data=meal_dict)
+        else:
+            _render_meal_panel(meal_log, title="Dry Run (Not Sent to Google Health)")
         return meal_log
 
     client = GoogleHealthClient()
     try:
         saved_meal = client.log_meal(meal_log)
-        _render_meal_panel(saved_meal, title="Successfully Logged to Google Health")
+        if output_json:
+            meal_dict = {
+                "id": saved_meal.id,
+                "time": saved_meal.interval.startTime,
+                "meal_type": saved_meal.mealType.value,
+                "name": saved_meal.foodDisplayName,
+                "protein_g": saved_meal.protein_g,
+                "calories_kcal": saved_meal.calories_kcal,
+                "carbs_g": saved_meal.carbs_g,
+                "fat_g": saved_meal.fat_g,
+                "fiber_g": saved_meal.fiber_g,
+            }
+            console.print_json(data=meal_dict)
+        else:
+            _render_meal_panel(saved_meal, title="Successfully Logged to Google Health")
         return saved_meal
     except GoogleHealthError as e:
         err_console.print(f"[bold red]Error logging meal:[/bold red] {e}")
@@ -206,7 +262,8 @@ def main(
         raise typer.Exit()
 
     if ctx.invoked_subcommand is None:
-        today_command()
+        console.print(ctx.get_help())
+        raise typer.Exit()
 
 
 @app.command("log")
@@ -216,7 +273,7 @@ def log_command(
         help="Meal name or shorthand string (e.g. 'Grilled Salmon' or '35p 600k Grilled Salmon').",
     ),
     protein: Optional[float] = typer.Option(None, "--protein", "-p", help="Protein in grams."),
-    calories: Optional[float] = typer.Option(None, "--calories", "-k", "--cal", help="Calories in kcal."),
+    calories: Optional[float] = typer.Option(None, "--calories", "-k", help="Calories in kcal."),
     carbs: Optional[float] = typer.Option(None, "--carbs", "-c", help="Carbohydrates in grams."),
     fat: Optional[float] = typer.Option(None, "--fat", "-f", help="Total fat in grams."),
     fiber: Optional[float] = typer.Option(None, "--fiber", help="Fiber in grams."),
@@ -240,36 +297,86 @@ def log_command(
     )
 
 
-@app.command("today")
-def today_command():
-    """Display today's meals and macronutrient progress against targets."""
+@app.command("history")
+def history_command(
+    date: Optional[str] = typer.Option(
+        None,
+        "--date",
+        "-d",
+        help="Target date ('today', 'yesterday', 'YYYY-MM-DD'). Defaults to today.",
+    ),
+    days: Optional[int] = typer.Option(
+        None,
+        "--days",
+        "-n",
+        help="Query past N calendar days (e.g. --days 7).",
+    ),
+    output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
+):
+    """View meal history and macronutrient totals."""
     active_tz = get_user_timezone()
     client = GoogleHealthClient()
     try:
-        meals = client.get_today_meals(tz=active_tz)
+        start_dt, end_dt, title_label = resolve_date_range(date_str=date, days=days, tz=active_tz)
+    except Exception as e:
+        err_console.print(f"[bold red]Invalid date format:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    try:
+        meals = client.list_meals(start_time=start_dt, end_time=end_dt)
     except GoogleHealthError as e:
-        err_console.print(f"[bold yellow]Could not fetch today's meals:[/bold yellow] {e}")
-        return
+        err_console.print(f"[bold red]Failed to fetch history:[/bold red] {e}")
+        raise typer.Exit(code=1)
 
     summary = MacroSummary.from_meals(meals)
 
-    now_str = datetime.now(active_tz).strftime("%a, %b %d")
-    table = Table(title=f"Today's Nutrition Summary ({now_str})", show_header=True, header_style="bold magenta")
-    table.add_column("Time", style="dim", width=10)
-    table.add_column("Meal Type", width=12)
-    table.add_column("Food", style="bold", min_width=20)
+    if output_json:
+        payload = {
+            "start_time": start_dt.isoformat(),
+            "end_time": end_dt.isoformat(),
+            "summary": {
+                "total_protein": summary.total_protein,
+                "total_calories": summary.total_calories,
+                "total_carbs": summary.total_carbs,
+                "total_fat": summary.total_fat,
+                "meal_count": summary.meal_count,
+            },
+            "meals": [
+                {
+                    "id": m.id,
+                    "time": m.interval.startTime,
+                    "meal_type": m.mealType.value,
+                    "name": m.foodDisplayName,
+                    "protein_g": m.protein_g,
+                    "calories_kcal": m.calories_kcal,
+                    "carbs_g": m.carbs_g,
+                    "fat_g": m.fat_g,
+                }
+                for m in meals
+            ],
+        }
+        console.print_json(data=payload)
+        return
+
+    is_multi_day = (end_dt.date() - start_dt.date()).days > 0
+    now_str = datetime.now(active_tz).strftime("%a, %b %d") if title_label == "Today" else title_label
+    table = Table(title=f"Meal History ({now_str})", show_header=True, header_style="bold magenta")
+    table.add_column("Time / Date", style="dim")
+    table.add_column("Meal Type")
+    table.add_column("Food", style="bold")
     table.add_column("Protein", justify="right", style="green")
     table.add_column("Calories", justify="right", style="yellow")
     table.add_column("Carbs", justify="right", style="blue")
     table.add_column("Fat", justify="right", style="magenta")
+    table.add_column("Point ID", style="dim")
 
     if not meals:
-        table.add_row("-", "-", "No meals logged yet today", "0.0g", "0 kcal", "0.0g", "0.0g")
+        table.add_row("-", "-", "No meals logged for this timeframe", "0.0g", "0 kcal", "0.0g", "0.0g", "-")
     else:
         for m in meals:
             try:
                 t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
-                t_str = t_dt.strftime("%I:%M %p")
+                t_str = t_dt.strftime("%b %d %I:%M %p") if is_multi_day else t_dt.strftime("%I:%M %p")
             except Exception:
                 t_str = m.interval.startTime[:16]
             table.add_row(
@@ -280,97 +387,19 @@ def today_command():
                 f"{m.calories_kcal:.0f} kcal",
                 f"{m.carbs_g:.1f}g",
                 f"{m.fat_g:.1f}g",
+                m.id or "-",
             )
 
     console.print(table)
 
     summary_panel = (
-        f"[bold]Daily Total Consumed:[/bold] {summary.total_protein:.1f}g Protein | "
+        f"[bold]Total Consumed ({summary.meal_count} meals):[/bold] "
+        f"{summary.total_protein:.1f}g Protein | "
         f"{summary.total_calories:.0f} kcal | "
         f"{summary.total_carbs:.1f}g Carbs | "
         f"{summary.total_fat:.1f}g Fat"
     )
     console.print(Panel(summary_panel, border_style="cyan"))
-
-
-def date_parser_iso(s: str) -> datetime:
-    from dateutil import parser
-
-    return parser.parse(s)
-
-
-@app.command("history")
-def history_command(
-    days: int = typer.Option(7, "--days", "-d", help="Number of past days to query."),
-    start: Optional[str] = typer.Option(None, "--start", "-s", help="Start time / date filter (e.g. '2026-08-17')."),
-    end: Optional[str] = typer.Option(None, "--end", "-e", help="End time / date filter."),
-    show_ids: bool = typer.Option(False, "--ids", help="Display Data Point IDs."),
-    output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
-):
-    """View meal history across past days."""
-    active_tz = get_user_timezone()
-    client = GoogleHealthClient()
-    start_dt = parse_time_str(start, tz=active_tz) if start else (datetime.now(active_tz) - timedelta(days=days))
-    end_dt = parse_time_str(end, tz=active_tz) if end else None
-
-    try:
-        meals = client.list_meals(start_time=start_dt, end_time=end_dt)
-    except GoogleHealthError as e:
-        err_console.print(f"[bold red]Failed to fetch history:[/bold red] {e}")
-        raise typer.Exit(code=1)
-
-    if output_json:
-        console.print_json(data=[m.to_api_payload() for m in meals])
-        return
-
-    table = Table(title=f"Meal History ({len(meals)} total)", show_header=True)
-    if show_ids:
-        table.add_column("Point ID", style="dim", max_width=20)
-    table.add_column("Date/Time", style="dim")
-    table.add_column("Type")
-    table.add_column("Food", style="bold")
-    table.add_column("Protein", justify="right", style="green")
-    table.add_column("Calories", justify="right", style="yellow")
-    table.add_column("Carbs", justify="right", style="blue")
-    table.add_column("Fat", justify="right", style="magenta")
-
-    if not meals:
-        row = ["-"] if show_ids else []
-        row.extend(["-", "-", "No meals found for this timeframe", "0.0g", "0 kcal", "0.0g", "0.0g"])
-        table.add_row(*row)
-    else:
-        for m in meals:
-            row = []
-            if show_ids:
-                row.append(m.id or "-")
-            try:
-                t_dt = date_parser_iso(m.interval.startTime).astimezone(active_tz)
-                t_str = t_dt.strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                t_str = m.interval.startTime[:16].replace("T", " ")
-            row.extend([
-                t_str,
-                m.mealType.value.capitalize(),
-                m.foodDisplayName,
-                f"{m.protein_g:.1f}g",
-                f"{m.calories_kcal:.0f} kcal",
-                f"{m.carbs_g:.1f}g",
-                f"{m.fat_g:.1f}g",
-            ])
-            table.add_row(*row)
-    console.print(table)
-
-
-@app.command("list", hidden=True)
-def list_command(
-    days: int = typer.Option(1, "--days", "-d", help="Number of days to query (default 1)."),
-    start: Optional[str] = typer.Option(None, "--start", help="Start time / date filter."),
-    end: Optional[str] = typer.Option(None, "--end", help="End time / date filter."),
-    show_ids: bool = typer.Option(True, "--ids", help="Display Data Point IDs."),
-    output_json: bool = typer.Option(False, "--json", help="Output raw JSON array."),
-):
-    """Alias for 'history' (kept for backward-compatibility)."""
-    history_command(days=days, start=start, end=end, show_ids=show_ids, output_json=output_json)
 
 
 @app.command("delete")
@@ -389,9 +418,9 @@ def delete_command(
     try:
         success = client.delete_meal(point_id)
         if success:
-            console.print(f"[bold green]✓ Successfully deleted meal {point_id}[/bold green]")
+            console.print(f"[bold green]✓ Successfully deleted meal[/bold green] [dim]({point_id})[/dim]")
         else:
-            err_console.print(f"[bold red]Could not delete meal {point_id}[/bold red]")
+            err_console.print(f"[bold red]Could not delete meal[/bold red] [dim]({point_id})[/dim]")
             raise typer.Exit(code=1)
     except GoogleHealthError as e:
         err_console.print(f"[bold red]Failed to delete meal:[/bold red] {e}")
@@ -405,7 +434,6 @@ def rm_command(
 ):
     """Alias for 'delete'."""
     delete_command(point_id=point_id, yes=yes)
-
 
 
 # Auth Subcommands

@@ -12,22 +12,22 @@ Data written by `nutrilog` syncs natively to the user's **Google Health app**, *
 
 ---
 
-## 1. Quick Meal Logging
+## 1. Meal Logging
 
 Nutrilog accepts shorthand strings combining numbers, macro letters, and food descriptions in any order:
 
 ```bash
 # Shorthand notation (protein 'p', fat 'f', carbs 'c', calories 'k' or 'cal')
-nutrilog "38p 18f 54c 580k Tofu Edamame Soba Bowl"
+nutrilog log "38p 18f 54c 580k Tofu Edamame Soba Bowl"
 
 # Explicit units and labels
-nutrilog "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g"
+nutrilog log "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g"
 
 # Prefix notation
-nutrilog "p30 f10 c45 390cal Chicken Burrito Bowl"
+nutrilog log "p30 f10 c45 390cal Chicken Burrito Bowl"
 
 # Automatic calorie calculation if calories are omitted
-nutrilog "30p 40c 10f Oatmeal"
+nutrilog log "30p 40c 10f Oatmeal"
 ```
 
 ### Flag-Based Logging
@@ -43,8 +43,8 @@ nutrilog log "Grilled Barramundi & Veggies" \
 ### Dry Run & JSON Output
 To preview what will be logged without sending to the API:
 ```bash
-nutrilog "38p 18f 54c 580k Tofu Bowl" --dry-run
-nutrilog "38p 18f 54c 580k Tofu Bowl" --json
+nutrilog log "38p 18f 54c 580k Tofu Bowl" --dry-run
+nutrilog log "38p 18f 54c 580k Tofu Bowl" --dry-run --json
 ```
 
 ---
@@ -52,21 +52,28 @@ nutrilog "38p 18f 54c 580k Tofu Bowl" --json
 ## 2. Reviewing Daily Nutrition & History
 
 ```bash
-# View today's meals table and progress towards daily targets
-nutrilog today
+# View today's meals table and total consumed macros
+nutrilog history
 
-# List logged meals with their unique Point IDs
-nutrilog list --days 3
+# View yesterday's meals and totals
+nutrilog history --date yesterday
 
-# View meal history across past days
-nutrilog history --days 7 --ids
+# View a specific past calendar date
+nutrilog history --date 2026-08-15
+
+# View past week's meals
+nutrilog history --days 7
+
+# Structured JSON output
+nutrilog history --json
+nutrilog history --days 7 --json
 ```
 
 ---
 
 ## 3. Deleting Mistakes or Duplicate Meals
 
-To delete a logged meal, use its Data Point ID (obtained from `nutrilog list` or `nutrilog history --ids`):
+To delete a logged meal, use its Data Point ID (visible directly in `nutrilog history`):
 
 ```bash
 # Delete by Point ID

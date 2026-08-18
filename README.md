@@ -78,16 +78,16 @@ Macros and calorie tokens can appear anywhere in the string in any order:
 
 ```bash
 # Shorthand notation (protein 'p', fat 'f', carbs 'c', calories 'k' or 'cal')
-nutrilog "38p 18f 54c 580k Tofu Edamame Soba Bowl"
+nutrilog log "38p 18f 54c 580k Tofu Edamame Soba Bowl"
 
 # Explicit units and labels
-nutrilog "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g"
+nutrilog log "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g"
 
 # Prefix notation
-nutrilog "p30 f10 c45 390cal Chicken Burrito Bowl"
+nutrilog log "p30 f10 c45 390cal Chicken Burrito Bowl"
 
 # Automatic calorie calculation if calories are omitted (4*P + 4*C + 9*F)
-nutrilog "30p 40c 10f Oatmeal"
+nutrilog log "30p 40c 10f Oatmeal"
 ```
 
 #### Shorthand Syntax Cheat-Sheet
@@ -116,25 +116,32 @@ nutrilog log "Grilled Barramundi & Veggies" \
   --meal lunch
 
 # Dry run (preview payload without sending)
-nutrilog "35p 450k Protein Shake" --dry-run
+nutrilog log "35p 450k Protein Shake" --dry-run
 
 # Output raw JSON payload
-nutrilog "35p 450k Protein Shake" --json
+nutrilog log "35p 450k Protein Shake" --dry-run --json
 ```
 
 ---
 
-### 3. Reviewing Today's Totals, History & Listing Meals
+### 3. Reviewing Today's Totals & History
 
 ```bash
-# View today's total consumed nutrition
-nutrilog today
+# View today's total consumed nutrition & meals
+nutrilog history
 
-# List recent meals with their Data Point IDs
-nutrilog list --days 3
+# View yesterday's meals and totals
+nutrilog history --date yesterday
 
-# View past week's meal history
-nutrilog history --days 7 --ids
+# View a specific past date
+nutrilog history --date 2026-08-15
+
+# View past 7 days of meal history
+nutrilog history --days 7
+
+# Structured JSON output
+nutrilog history --json
+nutrilog history --days 7 --json
 ```
 
 ---
