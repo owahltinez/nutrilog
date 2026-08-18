@@ -136,3 +136,17 @@ def test_parse_shorthand_saturated_fat_and_sodium_in_mg():
     nutrients = {n.nutrient: n.quantity.grams for n in result.to_meal_log().nutrients}
     assert nutrients["SATURATED_FAT"] == 4.4
     assert nutrients["SODIUM"] == 0.242
+
+
+def test_parse_shorthand_accepts_british_fibre_spelling():
+    result = parse_shorthand("fibre: 2g Oatmeal", tz=timezone.utc)
+    assert result.fiber == 2.0
+    assert result.name == "Oatmeal"
+
+
+def test_parse_shorthand_sodium_honours_gram_unit():
+    """'0.5g sodium' is 500mg; the unit must not be discarded."""
+    assert parse_shorthand("sodium: 0.5g Test", tz=timezone.utc).sodium_mg == 500.0
+    assert parse_shorthand("0.5g sodium Test", tz=timezone.utc).sodium_mg == 500.0
+    assert parse_shorthand("sodium: 500mg Test", tz=timezone.utc).sodium_mg == 500.0
+    assert parse_shorthand("500mg sodium Test", tz=timezone.utc).sodium_mg == 500.0

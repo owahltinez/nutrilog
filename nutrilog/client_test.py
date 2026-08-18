@@ -9,6 +9,7 @@ import respx
 
 from nutrilog.client import (
     API_BASE_URL,
+    MAX_PAGE_SIZE,
     APIPermissionError,
     AuthenticationError,
     GoogleHealthClient,
@@ -201,3 +202,68 @@ def test_delete_meal_403_api_disabled_keeps_enable_hint(client):
     )
     with pytest.raises(APIPermissionError, match="Google Cloud Console"):
         client.delete_meal("point-123")
+
+
+def _point(name: str, start: str) -> dict:
+    return {
+        "name": f"users/123/dataTypes/nutrition-log/dataPoints/{name}",
+        "nutritionLog": {
+            "foodDisplayName": name,
+            "mealType": "SNACK",
+            "interval": {"startTime": start, "endTime": start},
+            "energy": {"kcal": 100},
+        },
+    }
+
+
+@respx.mock
+def test_list_meals_follows_next_page_token(client):
+    """Every matching point must be returned, not just the first page."""
+    url = f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    respx.get(url).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={"dataPoints": [_point("first", "2026-08-17T01:00:00Z")], "nextPageToken": "tok1"},
+            ),
+            httpx.Response(
+                200,
+                json={"dataPoints": [_point("second", "2026-08-17T02:00:00Z")], "nextPageToken": "tok2"},
+            ),
+            httpx.Response(200, json={"dataPoints": [_point("third", "2026-08-17T03:00:00Z")]}),
+        ]
+    )
+    meals = client.list_meals(
+        start_time=datetime(2026, 8, 17, tzinfo=timezone.utc),
+        end_time=datetime(2026, 8, 18, tzinfo=timezone.utc),
+    )
+    assert [m.foodDisplayName for m in meals] == ["first", "second", "third"]
+    # The token from each response must be sent on the next request.
+    assert respx.calls[1].request.url.params.get("pageToken") == "tok1"
+    assert respx.calls[2].request.url.params.get("pageToken") == "tok2"
+
+
+@respx.mock
+def test_list_meals_excludes_unparseable_timestamps(client):
+    """A point whose timestamp cannot be parsed must not leak into a filtered range."""
+    url = f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            200,
+            json={"dataPoints": [_point("good", "2026-08-17T01:00:00Z"), _point("broken", "not-a-date")]},
+        )
+    )
+    meals = client.list_meals(
+        start_time=datetime(2026, 8, 17, tzinfo=timezone.utc),
+        end_time=datetime(2026, 8, 18, tzinfo=timezone.utc),
+    )
+    assert [m.foodDisplayName for m in meals] == ["good"]
+
+
+@respx.mock
+def test_list_meals_requests_the_largest_page(client):
+    """A small page size would expose the server's lossy same-timestamp cursor."""
+    url = f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    respx.get(url).mock(return_value=httpx.Response(200, json={"dataPoints": []}))
+    client.list_meals()
+    assert respx.calls[0].request.url.params.get("pageSize") == str(MAX_PAGE_SIZE)

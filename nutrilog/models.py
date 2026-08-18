@@ -181,7 +181,7 @@ class MealLog(BaseModel):
             )
 
         # Ensure protein is recorded in nutrients list
-        has_protein = any(n.nutrient == NutrientType.PROTEIN.value for n in self.nutrients)
+        has_protein = any(n.nutrient.upper() == NutrientType.PROTEIN.value for n in self.nutrients)
         if not has_protein and self.protein_g > 0:
             nutrients_list.append(
                 {

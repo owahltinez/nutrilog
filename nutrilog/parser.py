@@ -137,7 +137,7 @@ def _classify_nutrient(tag: str) -> Optional[str]:
         return "carbs"
     elif t in ("k", "cal", "cals", "kcal", "kcals", "calorie", "calories", "energy"):
         return "calories"
-    elif t in ("fib", "fiber", "fibres"):
+    elif t in ("fib", "fiber", "fibre", "fibers", "fibres"):
         return "fiber"
     elif t in ("sug", "sugar", "sugars"):
         return "sugar"
@@ -146,6 +146,17 @@ def _classify_nutrient(tag: str) -> Optional[str]:
     elif t in ("sod", "sodium"):
         return "sodium"
     return None
+
+
+def _scale_for_unit(category: str, value: float, unit: Optional[str]) -> float:
+    """Normalise a parsed value to the unit its category is stored in.
+
+    Sodium is tracked in milligrams, so a value written in grams must be scaled.
+    Every other nutrient is already in grams.
+    """
+    if category == "sodium" and unit and unit.lower() == "g":
+        return value * 1000.0
+    return value
 
 
 def parse_shorthand(
@@ -200,35 +211,35 @@ def parse_shorthand(
 
     # 1. Match explicit key-value pairs like "protein: 35g", "calories = 580", "fat: 12"
     kv_pattern = re.compile(
-        r"(?i)\b(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|calories|calorie|kcals|kcal|cals|cal|energy|fibres|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mg|g|kcal|cal|k)?\b"
+        r"(?i)\b(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|calories|calorie|kcals|kcal|cals|cal|energy|fibres|fibers|fibre|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*(mg|g|kcal|cal|k)?\b"
     )
 
     def kv_sub(m: re.Match) -> str:
-        tag, val_str = m.group(1), m.group(2)
+        tag, val_str, unit = m.group(1), m.group(2), m.group(3)
         category = _classify_nutrient(tag)
         if category:
-            apply_val(category, float(val_str))
+            apply_val(category, _scale_for_unit(category, float(val_str), unit))
         return " "
 
     working_text = kv_pattern.sub(kv_sub, working_text)
 
     # 2. Match "NUMBER g NUTRIENT" like "38g protein", "54g carbs", "500mg sodium"
     num_g_nutrient_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(?:g|mg)\s+(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|fibres|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\b"
+        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(g|mg)\s+(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|fibres|fibers|fibre|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\b"
     )
 
     def num_g_sub(m: re.Match) -> str:
-        val_str, tag = m.group(1), m.group(2)
+        val_str, unit, tag = m.group(1), m.group(2), m.group(3)
         category = _classify_nutrient(tag)
         if category:
-            apply_val(category, float(val_str))
+            apply_val(category, _scale_for_unit(category, float(val_str), unit))
         return " "
 
     working_text = num_g_nutrient_pattern.sub(num_g_sub, working_text)
 
     # 3. Match suffix tokens like "38p", "18f", "54c", "580k", "580kcal", "580cal", "9fib"
     suffix_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(p|pro|f|fat|c|carb|carbs|k|cal|cals|kcal|kcals|calories|fib|fiber|saturated_fat|saturated|satfat|sat|sug|sugar|sod|sodium)\b"
+        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(p|pro|f|fat|c|carb|carbs|k|cal|cals|kcal|kcals|calories|fib|fibre|fiber|saturated_fat|saturated|satfat|sat|sug|sugar|sod|sodium)\b"
     )
 
     def suffix_sub(m: re.Match) -> str:

@@ -248,3 +248,15 @@ def test_meal_log_missing_nutrients_read_zero():
     assert meal.sugar_g == 0.0
     assert meal.saturated_fat_g == 0.0
     assert meal.sodium_mg == 0.0
+
+
+def test_to_api_payload_does_not_duplicate_lowercase_protein():
+    """A lowercase 'protein' nutrient must not yield two protein entries."""
+    meal = MealLog(
+        foodDisplayName="x",
+        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:01:00Z"),
+        energy=Energy(kcal=100),
+        nutrients=[NutrientEntry(nutrient="protein", quantity=GramsQuantity(grams=20))],
+    )
+    sent = meal.to_api_payload()["nutritionLog"]["nutrients"]
+    assert len([n for n in sent if n["nutrient"].upper() == "PROTEIN"]) == 1

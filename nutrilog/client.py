@@ -12,6 +12,8 @@ from nutrilog.models import MealLog
 
 API_BASE_URL = "https://health.googleapis.com/v4"
 NUTRITION_DATA_TYPE = "nutrition-log"
+# Maximum accepted by users.dataTypes.dataPoints.list; larger values are truncated.
+MAX_PAGE_SIZE = 10000
 
 
 class GoogleHealthError(Exception):
@@ -28,6 +30,29 @@ class APIPermissionError(GoogleHealthError):
 
 class ResourceNotFoundError(GoogleHealthError):
     """Resource not found errors."""
+
+
+def _meal_in_range(
+    meal: MealLog,
+    start_time: Optional[datetime],
+    end_time: Optional[datetime],
+) -> bool:
+    """Whether a meal starts within the requested window.
+
+    A meal whose timestamp cannot be parsed is excluded rather than included: a
+    point we cannot place in time does not belong in a date-filtered result.
+    """
+    try:
+        meal_start = meal.interval.start_datetime
+    except (ValueError, TypeError, OverflowError):
+        return False
+    if meal_start.tzinfo is None:
+        meal_start = meal_start.replace(tzinfo=timezone.utc)
+    if start_time and meal_start < start_time:
+        return False
+    if end_time and meal_start > end_time:
+        return False
+    return True
 
 
 class GoogleHealthClient:
@@ -107,9 +132,16 @@ class GoogleHealthClient:
         self,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-        page_size: int = 100,
+        page_size: int = MAX_PAGE_SIZE,
     ) -> List[MealLog]:
-        """List nutrition data points within a given time range."""
+        """List nutrition data points within a given time range.
+
+        Requests the largest page the API allows. The server's `nextPageToken`
+        resumes at the next *distinct* interval start time, so a page boundary
+        landing inside a group of same-timestamped points skips the rest of that
+        group. Asking for one large page avoids the boundary entirely; do not
+        lower this without a different pagination strategy.
+        """
         from nutrilog.storage import get_user_timezone
 
         active_tz = get_user_timezone()
@@ -124,27 +156,27 @@ class GoogleHealthClient:
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 headers = self._get_headers()
-                response = client.get(url, params=params, headers=headers)
-                if response.is_error:
-                    self._handle_response_error(response)
-
-                data = response.json()
-                data_points = data.get("dataPoints", [])
                 meals = []
-                for point in data_points:
-                    meal = MealLog.from_api_payload(point)
-                    try:
-                        meal_start = meal.interval.start_datetime
-                        if meal_start.tzinfo is None:
-                            meal_start = meal_start.replace(tzinfo=timezone.utc)
-                        if start_time and meal_start < start_time:
-                            continue
-                        if end_time and meal_start > end_time:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
-                    meals.append(meal)
-                return meals
+                page_token: Optional[str] = None
+                # The API pages results, so one request only sees the newest page_size
+                # points; without following the token, older meals are silently missing.
+                while True:
+                    page_params = dict(params)
+                    if page_token:
+                        page_params["pageToken"] = page_token
+                    response = client.get(url, params=page_params, headers=headers)
+                    if response.is_error:
+                        self._handle_response_error(response)
+
+                    data = response.json()
+                    for point in data.get("dataPoints", []):
+                        meal = MealLog.from_api_payload(point)
+                        if _meal_in_range(meal, start_time, end_time):
+                            meals.append(meal)
+
+                    page_token = data.get("nextPageToken")
+                    if not page_token:
+                        return meals
         except httpx.RequestError as exc:
             raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
 
