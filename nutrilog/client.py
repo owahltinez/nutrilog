@@ -64,8 +64,15 @@ class GoogleHealthClient:
             )
         elif response.status_code == 403:
             try:
-                err_msg = response.json().get("error", {}).get("message", response.text)
-            except Exception:
+                error_data = response.json().get("error", {})
+                err_msg = error_data.get("message", response.text)
+                for d in error_data.get("details", []):
+                    if d.get("reason") == "DATA_POINT_NOT_OWNED_BY_CLIENT":
+                        raise APIPermissionError(
+                            "Cannot delete meal: this data point was created by another client "
+                            "(e.g. Fitbit app) and can only be deleted from the originating application."
+                        )
+            except (KeyError, ValueError, TypeError):
                 err_msg = response.text
             raise APIPermissionError(
                 f"Google Health API permission denied: {err_msg}. "
