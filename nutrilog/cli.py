@@ -192,7 +192,7 @@ def _log_meal_internal(
     if final_fiber > 0:
         nutrients.append(
             NutrientEntry(
-                nutrient=NutrientType.FIBER.value,
+                nutrient=NutrientType.DIETARY_FIBER.value,
                 quantity=GramsQuantity(grams=final_fiber),
             )
         )
@@ -339,6 +339,7 @@ def history_command(
                 "total_calories": summary.total_calories,
                 "total_carbs": summary.total_carbs,
                 "total_fat": summary.total_fat,
+                "total_fiber": summary.total_fiber,
                 "meal_count": summary.meal_count,
             },
             "meals": [
@@ -351,6 +352,7 @@ def history_command(
                     "calories_kcal": m.calories_kcal,
                     "carbs_g": m.carbs_g,
                     "fat_g": m.fat_g,
+                    "fiber_g": m.fiber_g,
                 }
                 for m in meals
             ],
@@ -368,6 +370,9 @@ def history_command(
     table.add_column("Calories", justify="right", style="yellow")
     table.add_column("Carbs", justify="right", style="blue")
     table.add_column("Fat", justify="right", style="magenta")
+    show_fiber = any(m.fiber_g > 0 for m in meals)
+    if show_fiber:
+        table.add_column("Fiber", justify="right", style="cyan")
     table.add_column("Point ID", style="dim")
 
     if not meals:
@@ -379,7 +384,7 @@ def history_command(
                 t_str = t_dt.strftime("%b %d %I:%M %p") if is_multi_day else t_dt.strftime("%I:%M %p")
             except Exception:
                 t_str = m.interval.startTime[:16]
-            table.add_row(
+            cells = [
                 t_str,
                 m.mealType.value.capitalize(),
                 m.foodDisplayName,
@@ -387,8 +392,11 @@ def history_command(
                 f"{m.calories_kcal:.0f} kcal",
                 f"{m.carbs_g:.1f}g",
                 f"{m.fat_g:.1f}g",
-                m.id or "-",
-            )
+            ]
+            if show_fiber:
+                cells.append(f"{m.fiber_g:.1f}g")
+            cells.append(m.id or "-")
+            table.add_row(*cells)
 
     console.print(table)
 
@@ -399,6 +407,8 @@ def history_command(
         f"{summary.total_carbs:.1f}g Carbs | "
         f"{summary.total_fat:.1f}g Fat"
     )
+    if summary.total_fiber > 0:
+        summary_panel += f" | {summary.total_fiber:.1f}g Fiber"
     console.print(Panel(summary_panel, border_style="cyan"))
 
 

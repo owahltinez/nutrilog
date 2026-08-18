@@ -221,3 +221,48 @@ def test_cli_config_commands(temp_config_dir: Path):
     result_invalid = runner.invoke(app, ["config", "set", "--timezone", "Not/A/Valid/Timezone"])
     assert result_invalid.exit_code == 1
     assert "Invalid timezone" in result_invalid.output
+
+
+def _fiber_meal(point_id: str) -> MealLog:
+    return MealLog(
+        id=point_id,
+        foodDisplayName="Test",
+        mealType=MealType.LUNCH,
+        interval=TimeInterval(startTime="2026-08-18T12:00:00Z", endTime="2026-08-18T12:01:00Z"),
+        energy=Energy(kcal=236),
+        totalCarbohydrate=GramsQuantity(grams=7.7),
+        totalFat=GramsQuantity(grams=8.3),
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=20)),
+            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=1.9)),
+        ],
+    )
+
+
+def test_cli_log_fiber_uses_dietary_fiber_enum(temp_config_dir: Path):
+    """`--fiber` must serialize to the only fibre value the v4 API accepts."""
+    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+        result = runner.invoke(
+            app,
+            ["log", "Test", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3", "--fiber", "1.9"],
+        )
+    assert result.exit_code == 0
+    sent = mock_log.call_args.args[0].to_api_payload()["nutritionLog"]["nutrients"]
+    assert {"nutrient": "DIETARY_FIBER", "quantity": {"grams": 1.9}} in sent
+
+
+def test_cli_history_shows_fiber(temp_config_dir: Path):
+    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[_fiber_meal("meal-fib")]):
+        result = runner.invoke(app, ["history"])
+        assert result.exit_code == 0
+        assert "Fiber" in result.stdout
+        assert "1.9g" in result.stdout
+
+
+def test_cli_history_json_includes_fiber(temp_config_dir: Path):
+    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[_fiber_meal("meal-fib")]):
+        result = runner.invoke(app, ["history", "--json"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert parsed["summary"]["total_fiber"] == 1.9
+        assert parsed["meals"][0]["fiber_g"] == 1.9

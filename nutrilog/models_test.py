@@ -56,7 +56,7 @@ def test_meal_log_payload_serialization():
                 quantity=GramsQuantity(grams=38.5),
             ),
             NutrientEntry(
-                nutrient=NutrientType.FIBER.value,
+                nutrient=NutrientType.DIETARY_FIBER.value,
                 quantity=GramsQuantity(grams=9.0),
             ),
         ],
@@ -101,7 +101,7 @@ def test_macro_summary():
         totalFat=GramsQuantity(grams=10),
         nutrients=[
             NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=25)),
-            NutrientEntry(nutrient="FIBER", quantity=GramsQuantity(grams=5)),
+            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=5)),
         ],
     )
     meal2 = MealLog(
@@ -112,7 +112,7 @@ def test_macro_summary():
         totalFat=GramsQuantity(grams=20),
         nutrients=[
             NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=35)),
-            NutrientEntry(nutrient="FIBER", quantity=GramsQuantity(grams=4)),
+            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=4)),
         ],
     )
 
@@ -123,3 +123,99 @@ def test_macro_summary():
     assert summary.total_carbs == 80
     assert summary.total_fat == 30
     assert summary.total_fiber == 9
+
+
+# Authoritative Nutrient enum from the Google Health API v4 discovery document
+# (https://health.googleapis.com/$discovery/rest?version=v4), at
+# schemas/NutrientQuantity/properties/nutrient. Sending any other value is a 400.
+V4_NUTRIENT_ENUM = frozenset(
+    {
+        "NUTRIENT_UNSPECIFIED",
+        "BIOTIN",
+        "CAFFEINE",
+        "CALCIUM",
+        "CHLORIDE",
+        "CARBOHYDRATES",
+        "CHOLESTEROL",
+        "CHROMIUM",
+        "COPPER",
+        "DIETARY_FIBER",
+        "FOLATE",
+        "FOLIC_ACID",
+        "IODINE",
+        "IRON",
+        "MAGNESIUM",
+        "MANGANESE",
+        "MOLYBDENUM",
+        "MONOUNSATURATED_FAT",
+        "NIACIN",
+        "PANTOTHENIC_ACID",
+        "PHOSPHORUS",
+        "POLYUNSATURATED_FAT",
+        "POTASSIUM",
+        "PROTEIN",
+        "RIBOFLAVIN",
+        "SATURATED_FAT",
+        "SELENIUM",
+        "SODIUM",
+        "SUGAR",
+        "THIAMIN",
+        "TRANS_FAT",
+        "UNSATURATED_FAT",
+        "VITAMIN_A",
+        "VITAMIN_B12",
+        "VITAMIN_B6",
+        "VITAMIN_C",
+        "VITAMIN_D",
+        "VITAMIN_E",
+        "VITAMIN_K",
+        "ZINC",
+    }
+)
+
+
+def test_nutrient_type_values_exist_in_api_enum():
+    invalid = sorted(n.value for n in NutrientType if n.value not in V4_NUTRIENT_ENUM)
+    assert invalid == []
+
+
+def _fiber_meal(grams: float) -> MealLog:
+    return MealLog(
+        foodDisplayName="Test",
+        interval=TimeInterval(startTime="2026-08-18T12:00:00Z", endTime="2026-08-18T12:01:00Z"),
+        energy=Energy(kcal=236),
+        nutrients=[
+            NutrientEntry(
+                nutrient=NutrientType.DIETARY_FIBER.value,
+                quantity=GramsQuantity(grams=grams),
+            )
+        ],
+    )
+
+
+def test_fiber_written_as_dietary_fiber():
+    nutrients = _fiber_meal(1.9).to_api_payload()["nutritionLog"]["nutrients"]
+    assert nutrients == [{"nutrient": "DIETARY_FIBER", "quantity": {"grams": 1.9}}]
+
+
+def test_fiber_read_from_dietary_fiber_nutrient():
+    payload = {
+        "nutritionLog": {
+            "foodDisplayName": "Test",
+            "interval": {"startTime": "2026-08-18T12:00:00Z", "endTime": "2026-08-18T12:01:00Z"},
+            "nutrients": [{"quantity": {"grams": 1.9}, "nutrient": "DIETARY_FIBER"}],
+        }
+    }
+    assert MealLog.from_api_payload(payload).fiber_g == 1.9
+
+
+def test_carbs_fall_back_to_carbohydrates_nutrient():
+    """Points from other clients may carry carbs only in the nutrients array."""
+    payload = {
+        "nutritionLog": {
+            "foodDisplayName": "Test",
+            "interval": {"startTime": "2026-08-18T12:00:00Z", "endTime": "2026-08-18T12:01:00Z"},
+            "nutrients": [{"quantity": {"grams": 7.7}, "nutrient": "CARBOHYDRATES"}],
+        }
+    }
+    assert MealLog.from_api_payload(payload).carbs_g == 7.7

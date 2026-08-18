@@ -39,10 +39,16 @@ class MealType(str, Enum):
 
 
 class NutrientType(str, Enum):
+    """Subset of the Google Health API v4 `Nutrient` enum that Nutrilog records.
+
+    Values must match the API enum exactly; anything else is rejected with a 400.
+    Note the API has no aggregate fat or carbohydrate nutrient: those totals live in
+    the dedicated `nutritionLog.totalFat` / `nutritionLog.totalCarbohydrate` fields.
+    """
+
     PROTEIN = "PROTEIN"
-    TOTAL_FAT = "TOTAL_FAT"
-    TOTAL_CARBOHYDRATE = "TOTAL_CARBOHYDRATE"
-    FIBER = "FIBER"
+    CARBOHYDRATES = "CARBOHYDRATES"
+    DIETARY_FIBER = "DIETARY_FIBER"
     SUGAR = "SUGAR"
     SODIUM = "SODIUM"
     POTASSIUM = "POTASSIUM"
@@ -135,23 +141,19 @@ class MealLog(BaseModel):
         if self.totalCarbohydrate.grams:
             return self.totalCarbohydrate.grams
         for n in self.nutrients:
-            if n.nutrient.upper() == NutrientType.TOTAL_CARBOHYDRATE.value:
+            if n.nutrient.upper() == NutrientType.CARBOHYDRATES.value:
                 return n.quantity.grams
         return 0.0
 
     @property
     def fat_g(self) -> float:
-        if self.totalFat.grams:
-            return self.totalFat.grams
-        for n in self.nutrients:
-            if n.nutrient.upper() == NutrientType.TOTAL_FAT.value:
-                return n.quantity.grams
-        return 0.0
+        # No fallback: the API has no aggregate fat nutrient, so totalFat is the only source.
+        return self.totalFat.grams
 
     @property
     def fiber_g(self) -> float:
         for n in self.nutrients:
-            if n.nutrient.upper() == NutrientType.FIBER.value:
+            if n.nutrient.upper() == NutrientType.DIETARY_FIBER.value:
                 return n.quantity.grams
         return 0.0
 

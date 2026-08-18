@@ -87,7 +87,7 @@ class ParsedMacros:
         if self.fiber > 0:
             nutrients.append(
                 NutrientEntry(
-                    nutrient=NutrientType.FIBER.value,
+                    nutrient=NutrientType.DIETARY_FIBER.value,
                     quantity=GramsQuantity(grams=self.fiber),
                 )
             )
