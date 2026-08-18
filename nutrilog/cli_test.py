@@ -266,3 +266,61 @@ def test_cli_history_json_includes_fiber(temp_config_dir: Path):
         parsed = json.loads(result.stdout)
         assert parsed["summary"]["total_fiber"] == 1.9
         assert parsed["meals"][0]["fiber_g"] == 1.9
+
+
+def _sent_nutrients(mock_log) -> list[dict]:
+    """Nutrients as serialized for the API by the last log_meal call."""
+    return mock_log.call_args.args[0].to_api_payload()["nutritionLog"]["nutrients"]
+
+
+def test_cli_log_sugar_saturated_fat_and_sodium_flags(temp_config_dir: Path):
+    """Sugar, saturated fat and sodium must be loggable via flags."""
+    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+        result = runner.invoke(
+            app,
+            ["log", "Musashi bar", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3",
+             "--fiber", "1.9", "--sugar", "3.7", "--saturated-fat", "4.4", "--sodium", "242"],
+        )
+    assert result.exit_code == 0, result.output
+    sent = _sent_nutrients(mock_log)
+    assert {"nutrient": "SUGAR", "quantity": {"grams": 3.7}} in sent
+    assert {"nutrient": "SATURATED_FAT", "quantity": {"grams": 4.4}} in sent
+    # --sodium is milligrams (as labels state it); the API field is grams.
+    assert {"nutrient": "SODIUM", "quantity": {"grams": 0.242}} in sent
+
+
+def test_cli_log_shorthand_sugar_and_sodium_are_not_dropped(temp_config_dir: Path):
+    """Regression: the CLI path used to discard shorthand-parsed sugar and sodium."""
+    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+        result = runner.invoke(app, ["log", "20p 236k 3.7sug 242sod Test bar"])
+    assert result.exit_code == 0, result.output
+    sent = _sent_nutrients(mock_log)
+    assert {"nutrient": "SUGAR", "quantity": {"grams": 3.7}} in sent
+    assert {"nutrient": "SODIUM", "quantity": {"grams": 0.242}} in sent
+
+
+def test_cli_history_json_includes_new_nutrients(temp_config_dir: Path):
+    """history --json must expose every nutrient nutrilog can record."""
+    meal = MealLog(
+        foodDisplayName="Musashi bar",
+        mealType=MealType.SNACK,
+        interval=TimeInterval.from_datetimes(__import__("datetime").datetime.now().astimezone()),
+        energy=Energy(kcal=236),
+        totalCarbohydrate=GramsQuantity(grams=7.7),
+        totalFat=GramsQuantity(grams=8.3),
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=20)),
+            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=1.9)),
+            NutrientEntry(nutrient="SUGAR", quantity=GramsQuantity(grams=3.7)),
+            NutrientEntry(nutrient="SATURATED_FAT", quantity=GramsQuantity(grams=4.4)),
+            NutrientEntry(nutrient="SODIUM", quantity=GramsQuantity(grams=0.242)),
+        ],
+    )
+    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[meal]):
+        result = runner.invoke(app, ["history", "--json"])
+    assert result.exit_code == 0, result.output
+    entry = json.loads(result.stdout)["meals"][0]
+    assert entry["fiber_g"] == 1.9
+    assert entry["sugar_g"] == 3.7
+    assert entry["saturated_fat_g"] == 4.4
+    assert entry["sodium_mg"] == 242.0

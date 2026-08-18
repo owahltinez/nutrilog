@@ -47,7 +47,8 @@ class ParsedMacros:
         calories: float = 0.0,
         fiber: float = 0.0,
         sugar: float = 0.0,
-        sodium: float = 0.0,
+        saturated_fat: float = 0.0,
+        sodium_mg: float = 0.0,
         meal_type: Optional[MealType] = None,
         timestamp: Optional[datetime] = None,
         tz: Optional[tzinfo] = None,
@@ -62,7 +63,9 @@ class ParsedMacros:
         self.calories = calories
         self.fiber = fiber
         self.sugar = sugar
-        self.sodium = sodium
+        self.saturated_fat = saturated_fat
+        # Named for its unit: labels state sodium in mg, the API field is grams.
+        self.sodium_mg = sodium_mg
         self.meal_type = meal_type
         self.timestamp = timestamp or datetime.now(self.active_tz)
 
@@ -98,11 +101,18 @@ class ParsedMacros:
                     quantity=GramsQuantity(grams=self.sugar),
                 )
             )
-        if self.sodium > 0:
+        if self.saturated_fat > 0:
+            nutrients.append(
+                NutrientEntry(
+                    nutrient=NutrientType.SATURATED_FAT.value,
+                    quantity=GramsQuantity(grams=self.saturated_fat),
+                )
+            )
+        if self.sodium_mg > 0:
             nutrients.append(
                 NutrientEntry(
                     nutrient=NutrientType.SODIUM.value,
-                    quantity=GramsQuantity(grams=self.sodium),
+                    quantity=GramsQuantity(grams=self.sodium_mg / 1000.0),
                 )
             )
 
@@ -131,6 +141,8 @@ def _classify_nutrient(tag: str) -> Optional[str]:
         return "fiber"
     elif t in ("sug", "sugar", "sugars"):
         return "sugar"
+    elif t in ("sat", "satfat", "saturated", "saturated_fat"):
+        return "saturated_fat"
     elif t in ("sod", "sodium"):
         return "sodium"
     return None
@@ -162,12 +174,13 @@ def parse_shorthand(
     calories = 0.0
     fiber = 0.0
     sugar = 0.0
+    saturated_fat = 0.0
     sodium = 0.0
 
     working_text = cleaned
 
     def apply_val(category: str, val: float):
-        nonlocal protein, fat, carbs, calories, fiber, sugar, sodium
+        nonlocal protein, fat, carbs, calories, fiber, sugar, saturated_fat, sodium
         if category == "protein":
             protein = val
         elif category == "fat":
@@ -180,12 +193,14 @@ def parse_shorthand(
             fiber = val
         elif category == "sugar":
             sugar = val
+        elif category == "saturated_fat":
+            saturated_fat = val
         elif category == "sodium":
             sodium = val
 
     # 1. Match explicit key-value pairs like "protein: 35g", "calories = 580", "fat: 12"
     kv_pattern = re.compile(
-        r"(?i)\b(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|calories|calorie|kcals|kcal|cals|cal|energy|fibres|fiber|fib|sugars|sugar|sug|sodium|sod)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mg|g|kcal|cal|k)?\b"
+        r"(?i)\b(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|calories|calorie|kcals|kcal|cals|cal|energy|fibres|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mg|g|kcal|cal|k)?\b"
     )
 
     def kv_sub(m: re.Match) -> str:
@@ -199,7 +214,7 @@ def parse_shorthand(
 
     # 2. Match "NUMBER g NUTRIENT" like "38g protein", "54g carbs", "500mg sodium"
     num_g_nutrient_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(?:g|mg)\s+(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|fibres|fiber|fib|sugars|sugar|sug|sodium|sod)\b"
+        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(?:g|mg)\s+(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|fibres|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\b"
     )
 
     def num_g_sub(m: re.Match) -> str:
@@ -213,7 +228,7 @@ def parse_shorthand(
 
     # 3. Match suffix tokens like "38p", "18f", "54c", "580k", "580kcal", "580cal", "9fib"
     suffix_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(p|pro|f|fat|c|carb|carbs|k|cal|cals|kcal|kcals|calories|fib|fiber|sug|sugar|sod|sodium)\b"
+        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(p|pro|f|fat|c|carb|carbs|k|cal|cals|kcal|kcals|calories|fib|fiber|saturated_fat|saturated|satfat|sat|sug|sugar|sod|sodium)\b"
     )
 
     def suffix_sub(m: re.Match) -> str:
@@ -251,7 +266,8 @@ def parse_shorthand(
         calories=calories,
         fiber=fiber,
         sugar=sugar,
-        sodium=sodium,
+        saturated_fat=saturated_fat,
+        sodium_mg=sodium,
         meal_type=default_meal_type,
         timestamp=default_time,
         tz=active_tz,

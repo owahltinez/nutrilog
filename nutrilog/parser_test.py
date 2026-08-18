@@ -54,7 +54,7 @@ def test_parse_shorthand_explicit_labels():
     assert result.carbs == 5.0
     assert result.calories == 280.0
     assert result.fiber == 2.0
-    assert result.sodium == 300.0
+    assert result.sodium_mg == 300.0  # 'sodium: 300' on a label means 300mg.
     assert result.name == "Grilled Salmon"
 
 
@@ -73,7 +73,9 @@ def test_parse_shorthand_calorie_estimation():
 def test_parse_shorthand_no_name():
     input_str = "25p 180k"
     fixed_time = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
-    result = parse_shorthand(input_str, default_time=fixed_time)
+    # Pin the zone too: meal type is inferred in local time, so a bare UTC
+    # timestamp makes the expected meal type depend on the machine's timezone.
+    result = parse_shorthand(input_str, default_time=fixed_time, tz=timezone.utc)
 
     assert result.protein == 25.0
     assert result.calories == 180.0
@@ -123,3 +125,14 @@ def test_parse_time_str_with_timezone():
     assert parsed.hour == 9
     assert parsed.minute == 30
     assert parsed.tzinfo == aest
+
+
+def test_parse_shorthand_saturated_fat_and_sodium_in_mg():
+    result = parse_shorthand("20p 8.3f 4.4sat 242sod Bar", tz=timezone.utc)
+
+    assert result.saturated_fat == 4.4
+    assert result.sodium_mg == 242.0
+
+    nutrients = {n.nutrient: n.quantity.grams for n in result.to_meal_log().nutrients}
+    assert nutrients["SATURATED_FAT"] == 4.4
+    assert nutrients["SODIUM"] == 0.242

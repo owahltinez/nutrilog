@@ -15,16 +15,11 @@ from nutrilog import __version__
 from nutrilog.auth import get_auth_status, login as auth_login, logout as auth_logout
 from nutrilog.client import GoogleHealthClient, GoogleHealthError
 from nutrilog.models import (
-    Energy,
-    GramsQuantity,
     MacroSummary,
     MealLog,
     MealType,
-    NutrientEntry,
-    NutrientType,
-    TimeInterval,
 )
-from nutrilog.parser import parse_shorthand, parse_time_str
+from nutrilog.parser import ParsedMacros, parse_shorthand, parse_time_str
 from nutrilog.storage import (
     get_config_dir,
     get_configured_timezone_name,
@@ -135,6 +130,9 @@ def _log_meal_internal(
     carbs: Optional[float] = None,
     fat: Optional[float] = None,
     fiber: Optional[float] = None,
+    sugar: Optional[float] = None,
+    saturated_fat: Optional[float] = None,
+    sodium_mg: Optional[float] = None,
     name: Optional[str] = None,
     meal_type_str: Optional[str] = None,
     time_str: Optional[str] = None,
@@ -167,6 +165,9 @@ def _log_meal_internal(
     final_fat = fat if fat is not None else parsed.fat
     final_carbs = carbs if carbs is not None else parsed.carbs
     final_fiber = fiber if fiber is not None else parsed.fiber
+    final_sugar = sugar if sugar is not None else parsed.sugar
+    final_saturated_fat = saturated_fat if saturated_fat is not None else parsed.saturated_fat
+    final_sodium_mg = sodium_mg if sodium_mg is not None else parsed.sodium_mg
     final_calories = calories if calories is not None else parsed.calories
 
     if final_calories <= 0 and (final_protein > 0 or final_carbs > 0 or final_fat > 0):
@@ -181,31 +182,21 @@ def _log_meal_internal(
     if not food_name:
         food_name = final_meal_type.value.capitalize()
 
-    nutrients = []
-    if final_protein > 0:
-        nutrients.append(
-            NutrientEntry(
-                nutrient=NutrientType.PROTEIN.value,
-                quantity=GramsQuantity(grams=final_protein),
-            )
-        )
-    if final_fiber > 0:
-        nutrients.append(
-            NutrientEntry(
-                nutrient=NutrientType.DIETARY_FIBER.value,
-                quantity=GramsQuantity(grams=final_fiber),
-            )
-        )
-
-    meal_log = MealLog(
-        foodDisplayName=food_name,
-        mealType=final_meal_type,
-        interval=TimeInterval.from_datetimes(meal_time),
-        energy=Energy(kcal=round(final_calories, 1)),
-        totalCarbohydrate=GramsQuantity(grams=round(final_carbs, 2)),
-        totalFat=GramsQuantity(grams=round(final_fat, 2)),
-        nutrients=nutrients,
-    )
+    # Delegate to ParsedMacros so flag and shorthand input share one nutrient-building path.
+    meal_log = ParsedMacros(
+        name=food_name,
+        protein=final_protein,
+        fat=final_fat,
+        carbs=final_carbs,
+        calories=final_calories,
+        fiber=final_fiber,
+        sugar=final_sugar,
+        saturated_fat=final_saturated_fat,
+        sodium_mg=final_sodium_mg,
+        meal_type=final_meal_type,
+        timestamp=meal_time,
+        tz=active_tz,
+    ).to_meal_log()
 
     if dry_run:
         if output_json:
@@ -219,6 +210,9 @@ def _log_meal_internal(
                 "carbs_g": meal_log.carbs_g,
                 "fat_g": meal_log.fat_g,
                 "fiber_g": meal_log.fiber_g,
+                "sugar_g": meal_log.sugar_g,
+                "saturated_fat_g": meal_log.saturated_fat_g,
+                "sodium_mg": meal_log.sodium_mg,
             }
             console.print_json(data=meal_dict)
         else:
@@ -239,6 +233,9 @@ def _log_meal_internal(
                 "carbs_g": saved_meal.carbs_g,
                 "fat_g": saved_meal.fat_g,
                 "fiber_g": saved_meal.fiber_g,
+                "sugar_g": saved_meal.sugar_g,
+                "saturated_fat_g": saved_meal.saturated_fat_g,
+                "sodium_mg": saved_meal.sodium_mg,
             }
             console.print_json(data=meal_dict)
         else:
@@ -277,6 +274,9 @@ def log_command(
     carbs: Optional[float] = typer.Option(None, "--carbs", "-c", help="Carbohydrates in grams."),
     fat: Optional[float] = typer.Option(None, "--fat", "-f", help="Total fat in grams."),
     fiber: Optional[float] = typer.Option(None, "--fiber", help="Fiber in grams."),
+    sugar: Optional[float] = typer.Option(None, "--sugar", help="Sugars in grams."),
+    saturated_fat: Optional[float] = typer.Option(None, "--saturated-fat", help="Saturated fat in grams."),
+    sodium: Optional[float] = typer.Option(None, "--sodium", help="Sodium in milligrams."),
     meal: Optional[str] = typer.Option(None, "--meal", "-m", help="Meal type (breakfast, lunch, dinner, snack)."),
     time_str: Optional[str] = typer.Option(None, "--time", "-t", help="Time of meal (e.g. '12:30', '1pm')."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without uploading to Google Health."),
@@ -290,6 +290,9 @@ def log_command(
         carbs=carbs,
         fat=fat,
         fiber=fiber,
+        sugar=sugar,
+        saturated_fat=saturated_fat,
+        sodium_mg=sodium,
         meal_type_str=meal,
         time_str=time_str,
         dry_run=dry_run,
@@ -353,6 +356,9 @@ def history_command(
                     "carbs_g": m.carbs_g,
                     "fat_g": m.fat_g,
                     "fiber_g": m.fiber_g,
+                    "sugar_g": m.sugar_g,
+                    "saturated_fat_g": m.saturated_fat_g,
+                    "sodium_mg": m.sodium_mg,
                 }
                 for m in meals
             ],

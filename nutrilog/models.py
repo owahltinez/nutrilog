@@ -131,8 +131,12 @@ class MealLog(BaseModel):
 
     @property
     def protein_g(self) -> float:
+        return self._nutrient_grams(NutrientType.PROTEIN)
+
+    def _nutrient_grams(self, nutrient: NutrientType) -> float:
+        """Grams recorded for a nutrient, or 0.0 when it was never logged."""
         for n in self.nutrients:
-            if n.nutrient.upper() == NutrientType.PROTEIN.value:
+            if n.nutrient.upper() == nutrient.value:
                 return n.quantity.grams
         return 0.0
 
@@ -140,10 +144,7 @@ class MealLog(BaseModel):
     def carbs_g(self) -> float:
         if self.totalCarbohydrate.grams:
             return self.totalCarbohydrate.grams
-        for n in self.nutrients:
-            if n.nutrient.upper() == NutrientType.CARBOHYDRATES.value:
-                return n.quantity.grams
-        return 0.0
+        return self._nutrient_grams(NutrientType.CARBOHYDRATES)
 
     @property
     def fat_g(self) -> float:
@@ -152,10 +153,20 @@ class MealLog(BaseModel):
 
     @property
     def fiber_g(self) -> float:
-        for n in self.nutrients:
-            if n.nutrient.upper() == NutrientType.DIETARY_FIBER.value:
-                return n.quantity.grams
-        return 0.0
+        return self._nutrient_grams(NutrientType.DIETARY_FIBER)
+
+    @property
+    def sugar_g(self) -> float:
+        return self._nutrient_grams(NutrientType.SUGAR)
+
+    @property
+    def saturated_fat_g(self) -> float:
+        return self._nutrient_grams(NutrientType.SATURATED_FAT)
+
+    @property
+    def sodium_mg(self) -> float:
+        # The API stores sodium in grams; labels state it in milligrams.
+        return round(self._nutrient_grams(NutrientType.SODIUM) * 1000.0, 3)
 
     def to_api_payload(self) -> dict[str, Any]:
         """Convert to Google Health API v4 nutritionLog dataPoint format."""
@@ -164,7 +175,8 @@ class MealLog(BaseModel):
             nutrients_list.append(
                 {
                     "nutrient": n.nutrient,
-                    "quantity": {"grams": round(n.quantity.grams, 2)},
+                    # 4dp, not 2: sodium is sub-gram, so 2dp would quantize 242mg to 240mg.
+                    "quantity": {"grams": round(n.quantity.grams, 4)},
                 }
             )
 

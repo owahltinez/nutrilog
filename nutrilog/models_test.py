@@ -219,3 +219,32 @@ def test_carbs_fall_back_to_carbohydrates_nutrient():
         }
     }
     assert MealLog.from_api_payload(payload).carbs_g == 7.7
+
+
+def test_meal_log_reads_sugar_saturated_fat_and_sodium():
+    """Nutrient getters must read the values nutrilog writes."""
+    meal = MealLog(
+        foodDisplayName="Musashi bar",
+        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+        energy=Energy(kcal=236),
+        nutrients=[
+            NutrientEntry(nutrient="SUGAR", quantity=GramsQuantity(grams=3.7)),
+            NutrientEntry(nutrient="SATURATED_FAT", quantity=GramsQuantity(grams=4.4)),
+            NutrientEntry(nutrient="SODIUM", quantity=GramsQuantity(grams=0.242)),
+        ],
+    )
+    assert meal.sugar_g == 3.7
+    assert meal.saturated_fat_g == 4.4
+    # Stored in grams, surfaced in milligrams to match how labels state sodium.
+    assert meal.sodium_mg == 242.0
+
+
+def test_meal_log_missing_nutrients_read_zero():
+    meal = MealLog(
+        foodDisplayName="Plain",
+        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+        energy=Energy(kcal=10),
+    )
+    assert meal.sugar_g == 0.0
+    assert meal.saturated_fat_g == 0.0
+    assert meal.sodium_mg == 0.0
