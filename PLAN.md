@@ -179,7 +179,7 @@ nutrilog auth logout
 ### 5.2 Fast Shorthand Logging (`nutrilog log` / `nutrilog quick`)
 ```bash
 # 1. Shorthand notation (macros + name)
-nutrilog "38p 18f 54c 580k Tofu Edamame Soba Bowl"
+nutrilog log "38p 18f 54c 580k Tofu Edamame Soba Bowl"
 
 # 2. Flag-based explicit logging
 nutrilog log "Grilled Barramundi & Veggies" \
@@ -189,23 +189,23 @@ nutrilog log "Grilled Barramundi & Veggies" \
   --carbs 12 \
   --meal lunch
 
-# 3. Quick calorie/protein top-up
-nutrilog quick --protein 25 --calories 180 --name "Post-workout Protein Shake"
+# 3. Dry run preview
+nutrilog log "30p 400k Protein Shake" --dry-run
 ```
 
-### 5.3 Meal History & Daily Targets (`nutrilog today` / `nutrilog history`)
+### 5.3 Meal History & Nutrition Review (`nutrilog history`)
 ```bash
-# View today's total logged macros vs daily targets
-nutrilog today
+# View today's total logged macros & meals
+nutrilog history
 
-# Output:
-# ━━━━━━━━━━━━━━━━ Today's Nutrition Summary (Mon, Aug 17) ━━━━━━━━━━━━━━━━
-# Meals Logged: 2
-# • 12:30 PM [Lunch]  Tofu & Edamame Bowl  38.5g P | 580 kcal | 54g C | 18g F
-# • 04:00 PM [Snack]  Protein Shake        25.0g P | 180 kcal |  4g C |  2g F
-# ──────────────────────────────────────────────────────────────────────────
-# Daily Total:        63.5g / 120g Protein (53%) | 760 / 2,000 kcal (38%)
-# Remaining:          56.5g Protein | 1,240 kcal
+# View yesterday's totals
+nutrilog history --date yesterday
+
+# View past week's totals
+nutrilog history --days 7
+
+# Structured JSON output
+nutrilog history --json
 ```
 
 ---

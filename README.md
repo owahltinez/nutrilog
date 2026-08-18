@@ -10,17 +10,17 @@ A fast, privacy-first CLI tool for logging meals, macronutrients, and calories d
 ---
 
 ```
-                       Today's Nutrition Summary (Mon, Aug 17)
-┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
-┃ Time       ┃ Meal Type    ┃ Food                     ┃ Protein ┃ Calories ┃   Carbs ┃    Fat ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━┩
-│ 12:30 PM   │ Lunch        │ Tofu Edamame Soba Bowl   │   38.5g │ 580 kcal │   54.0g │  18.0g │
-│ 04:00 PM   │ Snack        │ Protein Shake            │   25.0g │ 180 kcal │    4.0g │   2.0g │
-└━━━━━━━━━━━━┴━━━━━━━━━━━━━━┴━━━━━━━━━━━━━━━━━━━━━━━━━━┴━━━━━━━━━┴━━━━━━━━━━┴━━━━━━━━━┴━━━━━━━━┘
-╭──────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Daily Total: 63.5g / 120g Protein (53%) | 760 / 2,000 kcal (38%)                             │
-│ Remaining:   56.5g Protein | 1,240 kcal                                                      │
-╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+                           Meal History (Tue, Aug 18)
+┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━┓
+┃ Time /   ┃ Meal     ┃                        ┃         ┃          ┃       ┃       ┃ Point   ┃
+┃ Date     ┃ Type     ┃ Food                   ┃ Protein ┃ Calories ┃ Carbs ┃   Fat ┃ ID      ┃
+┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━┩
+│ 12:30 PM │ Lunch    │ Tofu Edamame Soba Bowl │   38.5g │ 580 kcal │ 54.0g │ 18.0g │ 519101… │
+│ 04:00 PM │ Snack    │ Protein Shake          │   25.0g │ 180 kcal │  4.0g │  2.0g │ 719082… │
+└──────────┴──────────┴────────────────────────┴─────────┴──────────┴───────┴───────┴─────────┘
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Total Consumed (2 meals): 63.5g Protein | 760 kcal | 58.0g Carbs | 20.0g Fat │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ---
@@ -31,10 +31,10 @@ A fast, privacy-first CLI tool for logging meals, macronutrients, and calories d
 
 ```bash
 # Log a meal using intuitive shorthand syntax (in dry-run preview)
-uvx --from . nutrilog "38p 18f 54c 580k Tofu Edamame Soba Bowl" --dry-run
+uvx --from . nutrilog log "38p 18f 54c 580k Tofu Edamame Soba Bowl" --dry-run
 
-# View today's summary & daily target progress
-uvx --from . nutrilog today
+# View today's meal history & total consumed macros
+uvx --from . nutrilog history
 
 # View command help
 uvx --from . nutrilog --help
@@ -244,7 +244,7 @@ Each Python module has a corresponding `_test.py` unit test suite alongside it:
 uv venv
 uv pip install -e ".[dev]"
 
-# Run full test suite (57 tests)
+# Run full test suite (58 tests)
 uv run pytest
 
 # Run tests with coverage report

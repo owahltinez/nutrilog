@@ -1,6 +1,6 @@
 ---
 name: nutrilog
-description: Fast, privacy-first CLI tool for logging meals, macronutrients, and calories directly to the Google Health API (health.googleapis.com/v4) from any terminal. Syncs live with Google Health, Fitbit, and Pixel Watch. Use when the user asks to log meals, track macros or calories, view today's nutrition rollup, check nutrition targets, or manage Google Health meal logs.
+description: Fast, privacy-first CLI tool for logging meals, macronutrients, and calories directly to the Google Health API (health.googleapis.com/v4) from any terminal. Syncs live with Google Health, Fitbit, and Pixel Watch. Use when the user asks to log meals, track macros or calories, view meal history, check daily nutrition summaries, or manage Google Health meal logs.
 license: MIT
 ---
 
