@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nutrilog"
-version = "0.1.9"
+version = "0.1.10"
 description = "A standalone, privacy-first CLI tool for logging meals, macronutrients, and calories directly to Google Health."
 readme = "README.md"
 requires-python = ">=3.10"
