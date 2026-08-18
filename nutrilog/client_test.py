@@ -156,3 +156,48 @@ def test_list_meals(client):
 def test_delete_meal(client):
     respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(200)
     assert client.delete_meal("point-123") is True
+
+
+@respx.mock
+def test_delete_meal_403_not_owned_by_client(client):
+    """The API forbids deleting points written by another client (e.g. the Fitbit app)."""
+    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(
+        403,
+        json={
+            "error": {
+                "code": 403,
+                "message": "Invalid argument in request: names",
+                "status": "PERMISSION_DENIED",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        "reason": "DATA_POINT_NOT_OWNED_BY_CLIENT",
+                        "domain": "health.googleapis.com",
+                        "metadata": {"field": "names"},
+                    },
+                    {
+                        "@type": "type.googleapis.com/google.rpc.BadRequest",
+                        "fieldViolations": [
+                            {
+                                "field": "names",
+                                "description": "Deleting data points sourced from other API clients is forbidden.",
+                            }
+                        ],
+                    },
+                ],
+            }
+        },
+    )
+    with pytest.raises(APIPermissionError, match="created by another client") as exc_info:
+        client.delete_meal("point-123")
+    # The "enable the API" hint is wrong for this failure and must not be shown.
+    assert "Google Cloud Console" not in str(exc_info.value)
+
+
+@respx.mock
+def test_delete_meal_403_api_disabled_keeps_enable_hint(client):
+    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(
+        403, json={"error": {"message": "Google Health API has not been used in project 123 before"}}
+    )
+    with pytest.raises(APIPermissionError, match="Google Cloud Console"):
+        client.delete_meal("point-123")
