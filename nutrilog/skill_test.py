@@ -117,3 +117,21 @@ def test_cli_skill_uninstall(mock_home: Path):
     assert result.exit_code == 0
     assert "Removed" in result.stdout
     assert not (dest / SKILL_NAME).exists()
+
+
+def test_single_skill_manifest_in_source_tree():
+    """One manifest only; a second copy silently drifts from the real one.
+
+    A duplicate under nutrilog/skills/ shipped stale docs for two releases
+    because it had to be updated by hand alongside the root manifest. The
+    wheel build maps the root file into place instead.
+    """
+    root = Path(__file__).resolve().parents[1]
+    skipped = {".venv", ".git", "dist", "build", ".pytest_cache", ".ruff_cache"}
+    found = sorted(
+        p.relative_to(root).as_posix()
+        for p in root.rglob("SKILL.md")
+        if not skipped & set(p.parts)
+    )
+
+    assert found == ["SKILL.md"], f"duplicate manifests drift: {found}"
