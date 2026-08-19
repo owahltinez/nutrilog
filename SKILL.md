@@ -33,11 +33,30 @@ nutrilog log "30p 40c 10f Oatmeal"
 nutrilog log "Oat Cortado 0.8p 40k caffeine: 63mg"
 ```
 
+### Choosing Entry Granularity
+
+Log independently served or described foods as separate entries when their nutrition can be
+reasonably estimated separately. Foods eaten at the same sitting do not need to be one entry:
+for example, log buffet tempeh salad and rice separately.
+
+Prefer the fewest entries that preserve meaningful distinctions:
+
+- Keep a composed dish, such as a curry, sandwich, stir-fry, or casserole, as one entry when
+  its ingredients form a single dish or only a total nutrition estimate is available.
+- Do not split a recipe into every ingredient merely because the user listed them. Split an
+  ingredient only when it was served or portioned separately, the user requests it, or tracking
+  it separately is materially useful.
+- Keep distinct sides, drinks, courses, or buffet selections separate when feasible. Assign the
+  same meal type and time so they remain associated with the meal.
+- If the boundary is genuinely ambiguous and would materially change the record, briefly state
+  the proposed grouping and ask before logging. Otherwise infer the simplest sensible grouping.
+
 Only protein, fat, carbs and calories have single-letter shorthand and may be written
 without a unit. Every other nutrient is written by name and **requires a unit** (`g`, `mg`,
 `µg`); a bare number is an error rather than a guess. `nutrilog nutrients` lists every name.
 
 ### Flag-Based Logging
+
 ```bash
 nutrilog log "Grilled Barramundi & Veggies" \
   --protein 36 \
@@ -51,7 +70,9 @@ nutrilog log "Multivitamin" -n "vitamin c=60mg" -n "zinc=10mg"
 ```
 
 ### Dry Run & JSON Output
+
 To preview what will be logged without sending to the API:
+
 ```bash
 nutrilog log "38p 18f 54c 580k Tofu Bowl" --dry-run
 nutrilog log "38p 18f 54c 580k Tofu Bowl" --dry-run --json

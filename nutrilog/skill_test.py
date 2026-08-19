@@ -34,6 +34,14 @@ def test_packaged_skill_exists():
     assert "name: nutrilog" in path.read_text(encoding="utf-8")
 
 
+def test_packaged_skill_guides_entry_granularity():
+    content = packaged_skill().read_text(encoding="utf-8")
+
+    assert "Choosing Entry Granularity" in content
+    assert "Prefer the fewest entries" in content
+    assert "Do not split a recipe into every ingredient" in content
+
+
 def test_detected_tools_empty(mock_home: Path):
     assert detected_tools(mock_home) == {}
 
