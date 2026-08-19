@@ -35,11 +35,20 @@ _DISPLAY_SUFFIX = {
     WeightUnit.MICROGRAM: "µg",
 }
 
-# "mcg" and "ug" are ASCII spellings of µg that labels and keyboards use.
+# Micrograms arrive spelled every which way: the micro sign U+00B5, a Greek mu
+# U+03BC that labels and copy-paste use interchangeably with it, and the ASCII
+# fallbacks "ug" and "mcg".
 _SPELLINGS = {
     WeightUnit.GRAM: ("g", "gram", "grams"),
     WeightUnit.MILLIGRAM: ("mg", "milligram", "milligrams"),
-    WeightUnit.MICROGRAM: ("µg", "ug", "mcg", "microgram", "micrograms"),
+    WeightUnit.MICROGRAM: (
+        "µg",
+        "μg",
+        "ug",
+        "mcg",
+        "microgram",
+        "micrograms",
+    ),
 }
 _UNIT_BY_SPELLING = {
     spelling: unit

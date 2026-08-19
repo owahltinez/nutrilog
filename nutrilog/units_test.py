@@ -66,3 +66,11 @@ def test_format_grams_scaling_treats_zero_as_grams():
 def test_format_grams_drops_trailing_zeros():
     assert format_grams(12.0, WeightUnit.GRAM) == "12g"
     assert format_grams(0.5, WeightUnit.MILLIGRAM) == "500mg"
+
+
+def test_parses_greek_mu_as_micrograms():
+    """Labels and copy-paste use U+03BC as often as the U+00B5 micro sign."""
+    grams, unit = parse_weight(10, "μg")
+
+    assert unit == WeightUnit.MICROGRAM
+    assert grams == pytest.approx(0.00001)
