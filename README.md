@@ -258,7 +258,7 @@ Each Python module has a corresponding `_test.py` unit test suite alongside it:
 uv venv
 uv pip install -e ".[dev]"
 
-# Run full test suite (58 tests)
+# Run full test suite
 uv run pytest
 
 # Run tests with coverage report

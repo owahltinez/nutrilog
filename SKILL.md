@@ -81,7 +81,23 @@ nutrilog history --days 7 --json
 
 ---
 
-## 3. Deleting Mistakes or Duplicate Meals
+## 3. Discovering Loggable Nutrients
+
+Only protein, fat, carbs and calories have shorthand letters. To see every
+other nutrient the API accepts, and how to write it:
+
+```bash
+nutrilog nutrients
+```
+
+Names are matched case-insensitively and accept spaces, hyphens or underscores,
+so `vitamin c`, `Vitamin-C` and `VITAMIN_C` are equivalent. Note that `salt` is
+not accepted as a synonym for sodium: 1g of salt is roughly 400mg of sodium, so
+equating them would record the wrong value.
+
+---
+
+## 4. Deleting Mistakes or Duplicate Meals
 
 To delete a logged meal, use its Data Point ID (visible directly in `nutrilog history`):
 
@@ -97,7 +113,7 @@ nutrilog rm <POINT_ID> -y
 
 ---
 
-## 4. Configuration & Timezone
+## 5. Configuration & Timezone
 
 ```bash
 # View current timezone configuration
@@ -113,7 +129,7 @@ nutrilog config set --timezone auto
 
 ---
 
-## 5. Authentication
+## 6. Authentication
 
 Nutrilog uses Google OAuth 2.0 with offline refresh tokens. It works out-of-the-box with zero configuration:
 

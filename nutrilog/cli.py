@@ -53,7 +53,7 @@ app = typer.Typer(
 )
 auth_app = typer.Typer(help="Manage OAuth 2.0 authentication and credentials.")
 config_app = typer.Typer(
-    help="Manage user preferences and daily macro targets."
+    help="Manage user preferences such as the active timezone."
 )
 
 app.add_typer(auth_app, name="auth")
