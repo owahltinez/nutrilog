@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, tzinfo
 import re
-from typing import Dict, Optional
+from datetime import datetime, tzinfo
+from typing import Dict, Iterable, Optional
+
 from dateutil import parser as date_parser
 
 from nutrilog.models import (
@@ -17,6 +18,7 @@ from nutrilog.models import (
     NutrientType,
     TimeInterval,
 )
+from nutrilog.storage import get_user_timezone
 from nutrilog.units import UNIT_SPELLINGS, UnknownUnitError, parse_weight
 
 
@@ -43,36 +45,51 @@ def infer_meal_type(dt: datetime, tz: Optional[tzinfo] = None) -> MealType:
         return MealType.SNACK
 
 
-# The only nutrients with single-letter shorthand. Kept closed deliberately: the API has 39
-# nutrients and letters do not scale, since "c" alone could mean carbs, calcium, cholesterol,
-# chloride, chromium or copper. Everything else is written by name.
+# The only nutrients with single-letter shorthand. Kept closed: API has 39
+# nutrients and single letters do not scale.
 _MACRO_ALIASES = {
     "protein": ("p", "pro", "prot", "protein", "proteins"),
     "fat": ("f", "fat", "fats", "total_fat"),
-    "carbs": ("c", "carb", "carbs", "carbohydrate", "carbohydrates", "total_carb"),
-    "calories": ("k", "cal", "cals", "kcal", "kcals", "calorie", "calories", "energy"),
+    "carbs": (
+        "c",
+        "carb",
+        "carbs",
+        "carbohydrate",
+        "carbohydrates",
+        "total_carb",
+    ),
+    "calories": (
+        "k",
+        "cal",
+        "cals",
+        "kcal",
+        "kcals",
+        "calorie",
+        "calories",
+        "energy",
+    ),
 }
 _MACRO_BY_ALIAS = {
-    alias: macro for macro, aliases in _MACRO_ALIASES.items() for alias in aliases
+    alias: macro
+    for macro, aliases in _MACRO_ALIASES.items()
+    for alias in aliases
 }
 
 
-def _alternation(names) -> str:
-    """A regex alternation, longest first so "sugars" wins over "sugar".
+def _alternation(names: Iterable[str]) -> str:
+    r"""A regex alternation, longest first so "sugars" wins over "sugar".
 
-    re.escape turns a space into "\\ ", which is what lets the caller swap it for a
-    separator class covering spaces, underscores and hyphens.
+    re.escape turns a space into "\ ", which is what lets the caller swap
+    it for a separator class covering spaces, underscores and hyphens.
     """
     return "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
 
 
-# Protein and carbohydrates are nutrients to the API but macros here: they own the "p" and
-# "c" shorthand and their own fields, so the macro rules below claim them. Leaving them in
-# the nutrient alternation would let "protein: 35g" match here and never reach a macro.
+# Protein and carbohydrates are nutrients to the API but macros here: they own
+# the "p" and "c" shorthand and their own fields, so macro rules claim them.
 MACRO_NUTRIENTS = {NutrientType.PROTEIN, NutrientType.CARBOHYDRATES}
 
-# Nutrient names accept spaces and hyphens where the API uses underscores, so
-# "vitamin c" and "saturated-fat" both resolve.
+# Nutrient names accept spaces and hyphens where the API uses underscores.
 _NUTRIENT_NAMES = [
     n.value.replace("_", " ") for n in NutrientType if n not in MACRO_NUTRIENTS
 ] + [
@@ -85,8 +102,7 @@ _UNIT_PATTERN = _alternation(UNIT_SPELLINGS)
 _NUMBER = r"[0-9]+(?:\.[0-9]+)?"
 _MACRO_PATTERN = _alternation(_MACRO_BY_ALIAS)
 
-# A labelled nutrient: "sodium: 450mg", "sodium = 450mg", "sodium 450mg". A separator or a
-# unit must be present, so "Iron Bru" and "Musashi Protein Crisp" stay part of the food name.
+# Labelled nutrients require a separator or unit to keep food names intact.
 _NUTRIENT_LABELLED = re.compile(
     rf"(?i)\b({_NUTRIENT_PATTERN})\s*(?::|=)\s*({_NUMBER})\s*([^\s,;]*)"
 )
@@ -98,18 +114,28 @@ _NUTRIENT_VALUE_FIRST = re.compile(
 )
 
 # Macros are unitless by convention: "38p", "p38", "protein: 38", "38g protein".
-_MACRO_LABELLED = re.compile(rf"(?i)\b({_MACRO_PATTERN})\s*[:=]\s*({_NUMBER})\s*(?:g|mg|kcal|cal|k)?\b")
-_MACRO_VALUE_FIRST = re.compile(rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*(?:g|mg)?\s+({_MACRO_PATTERN})\b")
-_MACRO_SUFFIX = re.compile(rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*({_MACRO_PATTERN})\b")
+_MACRO_LABELLED = re.compile(
+    rf"(?i)\b({_MACRO_PATTERN})\s*[:=]\s*({_NUMBER})\s*(?:g|mg|kcal|cal|k)?\b"
+)
+_MACRO_VALUE_FIRST = re.compile(
+    rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*(?:g|mg)?\s+({_MACRO_PATTERN})\b"
+)
+_MACRO_SUFFIX = re.compile(
+    rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*({_MACRO_PATTERN})\b"
+)
 _MACRO_PREFIX = re.compile(
     rf"(?i)(?:^|(?<=\s))(p|pro|f|c|cal|kcal)({_NUMBER})(?:g|mg|kcal|cal|k)?\b"
 )
 
 # Anything left that looks like a weight was probably meant as a nutrient.
-_LEFTOVER_WEIGHT = re.compile(rf"(?i)(?:^|(?<=\s))({_NUMBER}\s*(?:{_UNIT_PATTERN}))\b")
+_LEFTOVER_WEIGHT = re.compile(
+    rf"(?i)(?:^|(?<=\s))({_NUMBER}\s*(?:{_UNIT_PATTERN}))\b"
+)
 
 
 class ParsedMacros:
+    """Parsed macronutrient values and optional food metadata."""
+
     def __init__(
         self,
         name: str = "",
@@ -123,8 +149,7 @@ class ParsedMacros:
         tz: Optional[tzinfo] = None,
         warnings: Optional[list[str]] = None,
     ):
-        from nutrilog.storage import get_user_timezone
-
+        """Initialize ParsedMacros instance."""
         self.active_tz = tz or get_user_timezone()
         self.name = name.strip()
         self.protein = protein
@@ -138,8 +163,12 @@ class ParsedMacros:
         self.warnings = warnings or []
 
         # If calories not provided but macros are, estimate calories
-        if self.calories <= 0 and (self.protein > 0 or self.carbs > 0 or self.fat > 0):
-            self.calories = (self.protein * 4.0) + (self.carbs * 4.0) + (self.fat * 9.0)
+        if self.calories <= 0 and (
+            self.protein > 0 or self.carbs > 0 or self.fat > 0
+        ):
+            self.calories = (
+                (self.protein * 4.0) + (self.carbs * 4.0) + (self.fat * 9.0)
+            )
 
     def to_meal_log(self) -> MealLog:
         """Convert parsed macros to a MealLog object."""
@@ -147,8 +176,7 @@ class ParsedMacros:
         meal_type = self.meal_type or infer_meal_type(dt, tz=self.active_tz)
         name = self.name or meal_type.value.capitalize()
 
-        # Protein is the one macro the API keeps in the nutrients array rather than a
-        # dedicated field, so it is merged in here alongside the long tail.
+        # Protein is kept in the nutrients array in the API schema.
         entries: list[NutrientEntry] = []
         if self.protein > 0:
             entries.append(
@@ -160,7 +188,9 @@ class ParsedMacros:
         for nutrient, quantity in self.nutrients.items():
             if nutrient == NutrientType.PROTEIN:
                 continue
-            entries.append(NutrientEntry(nutrient=nutrient.value, quantity=quantity))
+            entries.append(
+                NutrientEntry(nutrient=nutrient.value, quantity=quantity)
+            )
 
         return MealLog(
             foodDisplayName=name,
@@ -173,7 +203,9 @@ class ParsedMacros:
         )
 
 
-def _quantity(nutrient_name: str, value: str, unit: Optional[str]) -> GramsQuantity:
+def _quantity(
+    nutrient_name: str, value: str, unit: Optional[str]
+) -> GramsQuantity:
     """Build a quantity, refusing to guess a unit the user did not write."""
     try:
         grams, resolved = parse_weight(float(value), unit)
@@ -188,21 +220,24 @@ def parse_shorthand(
     default_time: Optional[datetime] = None,
     tz: Optional[tzinfo] = None,
 ) -> ParsedMacros:
-    """Parse shorthand nutrition strings like:
+    """Parse shorthand nutrition strings into structured macro data.
+
+    Examples:
     - '38p 18f 54c 580k Tofu Edamame Soba Bowl'
     - 'Tofu Bowl 38g protein, 18g fat, 54g carbs, 580 kcal'
     - 'protein: 30, carbs: 40, fat: 10, calories: 350'
     - 'Oat Cortado caffeine: 95mg, magnesium: 7mg'
 
-    The four macros are unitless; every other nutrient is written by name and needs an
-    explicit unit. Raises ParseError when a named nutrient's unit is missing or unknown.
+    The four macros are unitless; every other nutrient is written by name and
+    needs an explicit unit. Raises ParseError when a named nutrient's unit
+    is missing or unknown.
     """
-    from nutrilog.storage import get_user_timezone
-
     active_tz = tz or get_user_timezone()
     cleaned = text.strip()
     if not cleaned:
-        return ParsedMacros(meal_type=default_meal_type, timestamp=default_time, tz=active_tz)
+        return ParsedMacros(
+            meal_type=default_meal_type, timestamp=default_time, tz=active_tz
+        )
 
     macros = {"protein": 0.0, "fat": 0.0, "carbs": 0.0, "calories": 0.0}
     nutrients: Dict[NutrientType, GramsQuantity] = {}
@@ -215,16 +250,18 @@ def parse_shorthand(
         nutrients[nutrient] = _quantity(name, value, unit)
         return " "
 
-    # Named nutrients first: they are unambiguous, and consuming them keeps their units
-    # from being mistaken for macro values.
+    # Named nutrients first: unambiguous and prevents unit mistakes.
     working_text = _NUTRIENT_LABELLED.sub(
-        lambda m: take_nutrient(m.group(1), m.group(2), m.group(3)), working_text
+        lambda m: take_nutrient(m.group(1), m.group(2), m.group(3)),
+        working_text,
     )
     working_text = _NUTRIENT_LABEL_FIRST.sub(
-        lambda m: take_nutrient(m.group(1), m.group(2), m.group(3)), working_text
+        lambda m: take_nutrient(m.group(1), m.group(2), m.group(3)),
+        working_text,
     )
     working_text = _NUTRIENT_VALUE_FIRST.sub(
-        lambda m: take_nutrient(m.group(3), m.group(1), m.group(2)), working_text
+        lambda m: take_nutrient(m.group(3), m.group(1), m.group(2)),
+        working_text,
     )
 
     def take_macro(alias: str, value: str) -> str:
@@ -233,13 +270,20 @@ def parse_shorthand(
             macros[macro] = float(value)
         return " "
 
-    working_text = _MACRO_LABELLED.sub(lambda m: take_macro(m.group(1), m.group(2)), working_text)
-    working_text = _MACRO_VALUE_FIRST.sub(lambda m: take_macro(m.group(2), m.group(1)), working_text)
-    working_text = _MACRO_SUFFIX.sub(lambda m: take_macro(m.group(2), m.group(1)), working_text)
-    working_text = _MACRO_PREFIX.sub(lambda m: take_macro(m.group(1), m.group(2)), working_text)
+    working_text = _MACRO_LABELLED.sub(
+        lambda m: take_macro(m.group(1), m.group(2)), working_text
+    )
+    working_text = _MACRO_VALUE_FIRST.sub(
+        lambda m: take_macro(m.group(2), m.group(1)), working_text
+    )
+    working_text = _MACRO_SUFFIX.sub(
+        lambda m: take_macro(m.group(2), m.group(1)), working_text
+    )
+    working_text = _MACRO_PREFIX.sub(
+        lambda m: take_macro(m.group(1), m.group(2)), working_text
+    )
 
-    # A leftover weight means a nutrient name was missing or misspelt. Silently folding it
-    # into the food name is what made dropped values invisible.
+    # A leftover weight means a nutrient name was missing or misspelt.
     warnings = [
         f"Ignored {m.group(1)!r}: no nutrient named alongside it."
         for m in _LEFTOVER_WEIGHT.finditer(working_text)
@@ -269,9 +313,7 @@ def parse_time_str(
     base_date: Optional[datetime] = None,
     tz: Optional[tzinfo] = None,
 ) -> datetime:
-    """Parse time/date strings like '12:30', '1:00pm', '2026-08-17 12:30', 'today 12pm'."""
-    from nutrilog.storage import get_user_timezone
-
+    """Parse '12:30', '1:00pm', '2026-08-17 12:30' or 'today 12pm'."""
     active_tz = tz or get_user_timezone()
     now = base_date or datetime.now(active_tz)
     parsed = date_parser.parse(time_str, default=now)

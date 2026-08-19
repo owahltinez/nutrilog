@@ -1,16 +1,21 @@
 """Unit tests for nutrilog.auth."""
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pytest
 from google.oauth2.credentials import Credentials
 
 from nutrilog.auth import (
+    extract_auth_code,
     get_auth_status,
     get_client_config,
     get_credentials,
+    is_headless_or_ssh,
     login,
+    login_remote,
     logout,
 )
 from nutrilog.storage import ENV_CONFIG_DIR, save_tokens
@@ -23,7 +28,9 @@ def temp_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return custom_dir
 
 
-def test_get_client_config_from_env(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
+def test_get_client_config_from_env(
+    monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path
+):
     monkeypatch.setenv("NUTRILOG_CLIENT_ID", "env-client-id")
     monkeypatch.setenv("NUTRILOG_CLIENT_SECRET", "env-client-secret")
 
@@ -33,7 +40,9 @@ def test_get_client_config_from_env(monkeypatch: pytest.MonkeyPatch, temp_config
     assert config["installed"]["client_secret"] == "env-client-secret"
 
 
-def test_get_client_config_default_fallback(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
+def test_get_client_config_default_fallback(
+    monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path
+):
     monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
     monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
@@ -44,21 +53,26 @@ def test_get_client_config_default_fallback(monkeypatch: pytest.MonkeyPatch, tem
     assert "apps.googleusercontent.com" in config["installed"]["client_id"]
 
 
-def test_get_client_config_from_explicit_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_get_client_config_from_explicit_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
     monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
 
-    import json
     secret_file = tmp_path / "custom_secrets.json"
-    data = {"installed": {"client_id": "file-id", "client_secret": "file-secret"}}
+    data = {
+        "installed": {"client_id": "file-id", "client_secret": "file-secret"}
+    }
     secret_file.write_text(json.dumps(data), encoding="utf-8")
 
     assert get_client_config(client_config_path=secret_file) == data
 
 
-def test_get_client_config_none_when_no_defaults(monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path):
+def test_get_client_config_none_when_no_defaults(
+    monkeypatch: pytest.MonkeyPatch, temp_config_dir: Path
+):
     monkeypatch.delenv("NUTRILOG_CLIENT_ID", raising=False)
     monkeypatch.delenv("NUTRILOG_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
@@ -82,7 +96,9 @@ def test_get_credentials_valid(temp_config_dir: Path):
         "token_uri": "https://oauth2.googleapis.com/token",
         "client_id": "test-client-id",
         "client_secret": "test-client-secret",
-        "scopes": ["https://www.googleapis.com/auth/googlehealth.nutrition.writeonly"],
+        "scopes": [
+            "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly"
+        ],
         "expiry": "2030-01-01T00:00:00Z",
     }
     save_tokens(token_data)
@@ -102,7 +118,9 @@ def test_get_credentials_expired_refreshed(temp_config_dir: Path):
         "token_uri": "https://oauth2.googleapis.com/token",
         "client_id": "test-client-id",
         "client_secret": "test-client-secret",
-        "scopes": ["https://www.googleapis.com/auth/googlehealth.nutrition.writeonly"],
+        "scopes": [
+            "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly"
+        ],
         "expiry": "2020-01-01T00:00:00Z",
     }
     save_tokens(token_data)
@@ -133,7 +151,9 @@ def test_login_flow(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
     mock_creds.scopes = ["scope1"]
     mock_creds.expiry = datetime(2030, 1, 1, 0, 0, tzinfo=timezone.utc)
 
-    with patch("nutrilog.auth.InstalledAppFlow.from_client_config") as mock_flow_init:
+    with patch(
+        "nutrilog.auth.InstalledAppFlow.from_client_config"
+    ) as mock_flow_init:
         mock_flow = MagicMock()
         mock_flow.run_local_server.return_value = mock_creds
         mock_flow_init.return_value = mock_flow
@@ -144,17 +164,21 @@ def test_login_flow(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_extract_auth_code():
-    from nutrilog.auth import extract_auth_code
-
-    assert extract_auth_code("http://localhost:54321/?code=4/0AbCd123&scope=health") == "4/0AbCd123"
-    assert extract_auth_code("https://localhost/?code=secret_code") == "secret_code"
+    assert (
+        extract_auth_code(
+            "http://localhost:54321/?code=4/0AbCd123&scope=health"
+        )
+        == "4/0AbCd123"
+    )
+    assert (
+        extract_auth_code("https://localhost/?code=secret_code")
+        == "secret_code"
+    )
     assert extract_auth_code("code=secret_code") == "secret_code"
     assert extract_auth_code("raw_code_value") == "raw_code_value"
 
 
 def test_is_headless_or_ssh(monkeypatch: pytest.MonkeyPatch):
-    from nutrilog.auth import is_headless_or_ssh
-
     monkeypatch.setenv("SSH_CLIENT", "192.168.1.1 1234 22")
     assert is_headless_or_ssh() is True
 
@@ -166,8 +190,6 @@ def test_is_headless_or_ssh(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_login_remote(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
-    from nutrilog.auth import login_remote
-
     monkeypatch.setenv("NUTRILOG_CLIENT_ID", "test-id")
     monkeypatch.setenv("NUTRILOG_CLIENT_SECRET", "test-secret")
 
@@ -180,13 +202,16 @@ def test_login_remote(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
     mock_creds.scopes = ["scope1"]
     mock_creds.expiry = datetime(2030, 1, 1, 0, 0, tzinfo=timezone.utc)
 
-    with patch("nutrilog.auth.InstalledAppFlow.from_client_config") as mock_flow_init:
+    with patch(
+        "nutrilog.auth.InstalledAppFlow.from_client_config"
+    ) as mock_flow_init:
         mock_flow = MagicMock()
         mock_flow.credentials = mock_creds
         mock_flow.authorization_url.return_value = ("https://auth.url", "state")
         mock_flow_init.return_value = mock_flow
 
-        creds = login_remote(input_callback=lambda url: "http://localhost/?code=4/0AbcTest")
+        creds = login_remote(
+            input_callback=lambda url: "http://localhost/?code=4/0AbcTest"
+        )
         assert creds == mock_creds
         mock_flow.fetch_token.assert_called_once_with(code="4/0AbcTest")
-

@@ -2,10 +2,11 @@
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
-from google.oauth2.credentials import Credentials
+
 import httpx
 import pytest
 import respx
+from google.oauth2.credentials import Credentials
 
 from nutrilog.client import (
     API_BASE_URL,
@@ -13,7 +14,6 @@ from nutrilog.client import (
     APIPermissionError,
     AuthenticationError,
     GoogleHealthClient,
-    GoogleHealthError,
 )
 from nutrilog.models import (
     Energy,
@@ -52,7 +52,9 @@ def test_log_meal_success(client):
         totalCarbohydrate=GramsQuantity(grams=40.0),
         totalFat=GramsQuantity(grams=15.0),
         nutrients=[
-            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=35.0)),
+            NutrientEntry(
+                nutrient="PROTEIN", quantity=GramsQuantity(grams=35.0)
+            ),
         ],
     )
 
@@ -61,9 +63,9 @@ def test_log_meal_success(client):
         "nutritionLog": meal.to_api_payload()["nutritionLog"],
     }
 
-    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints").respond(
-        200, json=response_payload
-    )
+    respx.post(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    ).respond(200, json=response_payload)
 
     result = client.log_meal(meal)
     assert result.id == "dp-abc-123"
@@ -79,35 +81,49 @@ def test_log_meal_not_authenticated():
             unauth_client.log_meal(
                 MealLog(
                     foodDisplayName="Meal",
-                    interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:01:00Z"),
+                    interval=TimeInterval(
+                        startTime="2026-08-17T12:00:00Z",
+                        endTime="2026-08-17T12:01:00Z",
+                    ),
                 )
             )
 
 
 @respx.mock
 def test_log_meal_401_error(client):
-    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints").respond(
-        401, json={"error": {"message": "Invalid credentials"}}
-    )
-    with pytest.raises(AuthenticationError, match="OAuth token is invalid or expired"):
+    respx.post(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    ).respond(401, json={"error": {"message": "Invalid credentials"}})
+    with pytest.raises(
+        AuthenticationError, match="OAuth token is invalid or expired"
+    ):
         client.log_meal(
             MealLog(
                 foodDisplayName="Meal",
-                interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+                interval=TimeInterval(
+                    startTime="2026-08-17T12:00:00Z",
+                    endTime="2026-08-17T12:00:00Z",
+                ),
             )
         )
 
 
 @respx.mock
 def test_log_meal_403_error(client):
-    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints").respond(
-        403, json={"error": {"message": "Google Health API has not been enabled"}}
+    respx.post(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    ).respond(
+        403,
+        json={"error": {"message": "Google Health API has not been enabled"}},
     )
     with pytest.raises(APIPermissionError, match="permission denied"):
         client.log_meal(
             MealLog(
                 foodDisplayName="Meal",
-                interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+                interval=TimeInterval(
+                    startTime="2026-08-17T12:00:00Z",
+                    endTime="2026-08-17T12:00:00Z",
+                ),
             )
         )
 
@@ -120,11 +136,16 @@ def test_list_meals(client):
             "nutritionLog": {
                 "foodDisplayName": "Breakfast Oats",
                 "mealType": "BREAKFAST",
-                "interval": {"startTime": "2026-08-17T08:00:00Z", "endTime": "2026-08-17T08:00:00Z"},
+                "interval": {
+                    "startTime": "2026-08-17T08:00:00Z",
+                    "endTime": "2026-08-17T08:00:00Z",
+                },
                 "energy": {"kcal": 350},
                 "totalCarbohydrate": {"grams": 50},
                 "totalFat": {"grams": 8},
-                "nutrients": [{"nutrient": "PROTEIN", "quantity": {"grams": 20}}],
+                "nutrients": [
+                    {"nutrient": "PROTEIN", "quantity": {"grams": 20}}
+                ],
             },
         },
         {
@@ -132,18 +153,23 @@ def test_list_meals(client):
             "nutritionLog": {
                 "foodDisplayName": "Chicken Rice",
                 "mealType": "LUNCH",
-                "interval": {"startTime": "2026-08-17T12:30:00Z", "endTime": "2026-08-17T12:30:00Z"},
+                "interval": {
+                    "startTime": "2026-08-17T12:30:00Z",
+                    "endTime": "2026-08-17T12:30:00Z",
+                },
                 "energy": {"kcal": 650},
                 "totalCarbohydrate": {"grams": 70},
                 "totalFat": {"grams": 15},
-                "nutrients": [{"nutrient": "PROTEIN", "quantity": {"grams": 45}}],
+                "nutrients": [
+                    {"nutrient": "PROTEIN", "quantity": {"grams": 45}}
+                ],
             },
         },
     ]
 
-    respx.get(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints").respond(
-        200, json={"dataPoints": sample_points}
-    )
+    respx.get(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
+    ).respond(200, json={"dataPoints": sample_points})
 
     meals = client.list_meals()
     assert len(meals) == 2
@@ -155,14 +181,18 @@ def test_list_meals(client):
 
 @respx.mock
 def test_delete_meal(client):
-    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(200)
+    respx.post(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete"
+    ).respond(200)
     assert client.delete_meal("point-123") is True
 
 
 @respx.mock
 def test_delete_meal_403_not_owned_by_client(client):
-    """The API forbids deleting points written by another client (e.g. the Fitbit app)."""
-    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(
+    """The API forbids deleting another client's points, e.g. Fitbit's."""
+    respx.post(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete"
+    ).respond(
         403,
         json={
             "error": {
@@ -181,7 +211,10 @@ def test_delete_meal_403_not_owned_by_client(client):
                         "fieldViolations": [
                             {
                                 "field": "names",
-                                "description": "Deleting data points sourced from other API clients is forbidden.",
+                                "description": (
+                                    "Deleting data points sourced from other "
+                                    "API clients is forbidden."
+                                ),
                             }
                         ],
                     },
@@ -189,7 +222,9 @@ def test_delete_meal_403_not_owned_by_client(client):
             }
         },
     )
-    with pytest.raises(APIPermissionError, match="created by another client") as exc_info:
+    with pytest.raises(
+        APIPermissionError, match="created by another client"
+    ) as exc_info:
         client.delete_meal("point-123")
     # The "enable the API" hint is wrong for this failure and must not be shown.
     assert "Google Cloud Console" not in str(exc_info.value)
@@ -197,8 +232,17 @@ def test_delete_meal_403_not_owned_by_client(client):
 
 @respx.mock
 def test_delete_meal_403_api_disabled_keeps_enable_hint(client):
-    respx.post(f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete").respond(
-        403, json={"error": {"message": "Google Health API has not been used in project 123 before"}}
+    respx.post(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints:batchDelete"
+    ).respond(
+        403,
+        json={
+            "error": {
+                "message": (
+                    "Google Health API has not been used in project 123 before"
+                )
+            }
+        },
     )
     with pytest.raises(APIPermissionError, match="Google Cloud Console"):
         client.delete_meal("point-123")
@@ -224,13 +268,22 @@ def test_list_meals_follows_next_page_token(client):
         side_effect=[
             httpx.Response(
                 200,
-                json={"dataPoints": [_point("first", "2026-08-17T01:00:00Z")], "nextPageToken": "tok1"},
+                json={
+                    "dataPoints": [_point("first", "2026-08-17T01:00:00Z")],
+                    "nextPageToken": "tok1",
+                },
             ),
             httpx.Response(
                 200,
-                json={"dataPoints": [_point("second", "2026-08-17T02:00:00Z")], "nextPageToken": "tok2"},
+                json={
+                    "dataPoints": [_point("second", "2026-08-17T02:00:00Z")],
+                    "nextPageToken": "tok2",
+                },
             ),
-            httpx.Response(200, json={"dataPoints": [_point("third", "2026-08-17T03:00:00Z")]}),
+            httpx.Response(
+                200,
+                json={"dataPoints": [_point("third", "2026-08-17T03:00:00Z")]},
+            ),
         ]
     )
     meals = client.list_meals(
@@ -245,12 +298,17 @@ def test_list_meals_follows_next_page_token(client):
 
 @respx.mock
 def test_list_meals_excludes_unparseable_timestamps(client):
-    """A point whose timestamp cannot be parsed must not leak into a filtered range."""
+    """Unparseable timestamps must not leak into a filtered range."""
     url = f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
     respx.get(url).mock(
         return_value=httpx.Response(
             200,
-            json={"dataPoints": [_point("good", "2026-08-17T01:00:00Z"), _point("broken", "not-a-date")]},
+            json={
+                "dataPoints": [
+                    _point("good", "2026-08-17T01:00:00Z"),
+                    _point("broken", "not-a-date"),
+                ]
+            },
         )
     )
     meals = client.list_meals(
@@ -262,8 +320,12 @@ def test_list_meals_excludes_unparseable_timestamps(client):
 
 @respx.mock
 def test_list_meals_requests_the_largest_page(client):
-    """A small page size would expose the server's lossy same-timestamp cursor."""
+    """A small page size would expose the lossy same-timestamp cursor."""
     url = f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints"
-    respx.get(url).mock(return_value=httpx.Response(200, json={"dataPoints": []}))
+    respx.get(url).mock(
+        return_value=httpx.Response(200, json={"dataPoints": []})
+    )
     client.list_meals()
-    assert respx.calls[0].request.url.params.get("pageSize") == str(MAX_PAGE_SIZE)
+    assert respx.calls[0].request.url.params.get("pageSize") == str(
+        MAX_PAGE_SIZE
+    )

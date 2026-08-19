@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
 import re
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any, List, Optional
+
+from dateutil.parser import isoparse
 from pydantic import BaseModel, Field
 
 from nutrilog.units import WeightUnit
 
 
 class MealType(str, Enum):
+    """Meal category enum recognized by the Google Health API."""
+
     MEAL_TYPE_UNSPECIFIED = "MEAL_TYPE_UNSPECIFIED"
     BREAKFAST = "BREAKFAST"
     LUNCH = "LUNCH"
@@ -20,6 +24,7 @@ class MealType(str, Enum):
 
     @classmethod
     def from_string(cls, val: str) -> MealType:
+        """Resolve a written string or alias to a MealType enum value."""
         v = val.strip().upper()
         if v in cls.__members__:
             return cls[v]
@@ -44,11 +49,12 @@ class MealType(str, Enum):
 class NutrientType(str, Enum):
     """The Google Health API v4 `Nutrient` enum.
 
-    Complete rather than a curated subset: the API treats every nutrient identically
-    (a name plus a weight in grams), so listing them all means logging caffeine or a
-    vitamin needs no new code. Values must match the API exactly or it returns a 400.
-    Aggregate fat and carbohydrate are absent by design -- those totals live in the
-    dedicated `nutritionLog.totalFat` / `nutritionLog.totalCarbohydrate` fields.
+    Complete rather than a curated subset: the API treats every nutrient
+    identically (a name plus a weight in grams), so listing them all means
+    logging caffeine or a vitamin needs no new code. Values must match the
+    API exactly or it returns a 400. Aggregate fat and carbohydrate are
+    absent by design: those totals live in the dedicated
+    `nutritionLog.totalFat` / `nutritionLog.totalCarbohydrate` fields.
     """
 
     BIOTIN = "BIOTIN"
@@ -93,15 +99,14 @@ class NutrientType(str, Enum):
 
     @classmethod
     def from_string(cls, val: str) -> Optional[NutrientType]:
-        """Resolve a written nutrient name, or None if it names no known nutrient."""
+        """Resolve a written nutrient name, or None if unknown."""
         normalised = re.sub(r"[\s\-]+", "_", val.strip().upper())
         if normalised in cls.__members__:
             return cls[normalised]
         return NUTRIENT_ALIASES.get(normalised)
 
 
-# Only for names whose API spelling nobody would write by hand. Deliberately excludes
-# "salt", which is not sodium: 1g of salt is roughly 400mg of sodium.
+# Aliases for names whose API spelling nobody writes by hand. Excludes "salt".
 NUTRIENT_ALIASES = {
     "FIBER": NutrientType.DIETARY_FIBER,
     "FIBERS": NutrientType.DIETARY_FIBER,
@@ -115,27 +120,35 @@ NUTRIENT_ALIASES = {
 
 
 class GramsQuantity(BaseModel):
+    """A nutrient quantity measured in grams with an optional user unit."""
+
     grams: float = 0.0
     # The API echoes this back so clients can show "95mg" instead of "0.095g".
-    userProvidedUnit: Optional[WeightUnit] = None
+    userProvidedUnit: Optional[WeightUnit] = None  # noqa: N815
 
 
 class Energy(BaseModel):
+    """Energy quantity in kilocalories (kcal)."""
+
     kcal: float = 0.0
 
 
 class Serving(BaseModel):
+    """Serving size information."""
+
     amount: float = 1.0
     unit: str = "serving"
 
 
 class NutrientEntry(BaseModel):
+    """A single nutrient entry pairing an API nutrient name with quantity."""
+
     nutrient: str
     quantity: GramsQuantity
 
 
 def _utc_offset_seconds(dt: datetime) -> Optional[str]:
-    """The datetime's UTC offset as an API Duration string, or None if naive."""
+    """The datetime's UTC offset as an API Duration, or None if naive."""
     offset = dt.utcoffset()
     if offset is None:
         return None
@@ -143,21 +156,22 @@ def _utc_offset_seconds(dt: datetime) -> Optional[str]:
 
 
 class TimeInterval(BaseModel):
-    startTime: str
-    endTime: str
-    # The API ignores the offset inside startTime and stores 0s unless these are sent, which
-    # makes the Health app file a meal on the UTC day instead of the local one.
-    startUtcOffset: Optional[str] = None
-    endUtcOffset: Optional[str] = None
+    """Time interval representing when a meal was consumed."""
+
+    startTime: str  # noqa: N815
+    endTime: str  # noqa: N815
+    # The API ignores the offset inside startTime and stores 0s unless sent.
+    startUtcOffset: Optional[str] = None  # noqa: N815
+    endUtcOffset: Optional[str] = None  # noqa: N815
 
     @property
     def start_datetime(self) -> datetime:
-        from dateutil.parser import isoparse
+        """Parse startTime into a timezone-aware datetime object."""
         return isoparse(self.startTime)
 
     @property
     def end_datetime(self) -> datetime:
-        from dateutil.parser import isoparse
+        """Parse endTime into a timezone-aware datetime object."""
         return isoparse(self.endTime)
 
     @classmethod
@@ -166,8 +180,7 @@ class TimeInterval(BaseModel):
         start: datetime,
         end: Optional[datetime] = None,
     ) -> TimeInterval:
-        from datetime import timedelta
-
+        """Create a TimeInterval from start and optional end datetimes."""
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
         if end is None:
@@ -187,22 +200,26 @@ class TimeInterval(BaseModel):
 
 
 class MealLog(BaseModel):
+    """A complete meal log entry matching the Google Health API schema."""
+
     id: Optional[str] = None
-    foodDisplayName: str = "Meal"
-    mealType: MealType = MealType.MEAL_TYPE_UNSPECIFIED
+    foodDisplayName: str = "Meal"  # noqa: N815
+    mealType: MealType = MealType.MEAL_TYPE_UNSPECIFIED  # noqa: N815
     interval: TimeInterval
     energy: Energy = Field(default_factory=Energy)
-    totalCarbohydrate: GramsQuantity = Field(default_factory=GramsQuantity)
-    totalFat: GramsQuantity = Field(default_factory=GramsQuantity)
+    totalCarbohydrate: GramsQuantity = Field(default_factory=GramsQuantity)  # noqa: N815
+    totalFat: GramsQuantity = Field(default_factory=GramsQuantity)  # noqa: N815
     nutrients: List[NutrientEntry] = Field(default_factory=list)
     serving: Optional[Serving] = None
 
     @property
     def calories_kcal(self) -> float:
+        """Return total calories in kcal."""
         return self.energy.kcal
 
     @property
     def protein_g(self) -> float:
+        """Return total protein in grams."""
         return self.nutrient_grams(NutrientType.PROTEIN)
 
     def nutrient_grams(self, nutrient: NutrientType) -> float:
@@ -214,28 +231,33 @@ class MealLog(BaseModel):
 
     @property
     def carbs_g(self) -> float:
+        """Return total carbohydrates in grams."""
         if self.totalCarbohydrate.grams:
             return self.totalCarbohydrate.grams
         return self.nutrient_grams(NutrientType.CARBOHYDRATES)
 
     @property
     def fat_g(self) -> float:
-        # No fallback: the API has no aggregate fat nutrient, so totalFat is the only source.
+        """Return total fat in grams."""
         return self.totalFat.grams
 
     def to_api_payload(self) -> dict[str, Any]:
         """Convert to Google Health API v4 nutritionLog dataPoint format."""
         nutrients_list = []
         for n in self.nutrients:
-            # 9dp, not 2: a 2.4µg vitamin is 0.0000024g, and anything coarser rounds the
-            # smallest nutrients away entirely. Nanograms are the API's finest unit.
+            # 9dp preserves microgram precision (e.g. 2.4µg = 0.0000024g).
             quantity: dict[str, Any] = {"grams": round(n.quantity.grams, 9)}
             if n.quantity.userProvidedUnit is not None:
                 quantity["userProvidedUnit"] = n.quantity.userProvidedUnit.value
-            nutrients_list.append({"nutrient": n.nutrient, "quantity": quantity})
+            nutrients_list.append(
+                {"nutrient": n.nutrient, "quantity": quantity}
+            )
 
         # Ensure protein is recorded in nutrients list
-        has_protein = any(n.nutrient.upper() == NutrientType.PROTEIN.value for n in self.nutrients)
+        has_protein = any(
+            n.nutrient.upper() == NutrientType.PROTEIN.value
+            for n in self.nutrients
+        )
         if not has_protein and self.protein_g > 0:
             nutrients_list.append(
                 {
@@ -249,7 +271,7 @@ class MealLog(BaseModel):
             "endTime": self.interval.endTime,
         }
 
-        # Omitted rather than defaulted: a naive interval has no offset to claim.
+        # Omitted rather than defaulted: naive interval has no offset to claim.
         if self.interval.startUtcOffset is not None:
             interval_payload["startUtcOffset"] = self.interval.startUtcOffset
         if self.interval.endUtcOffset is not None:
@@ -274,7 +296,9 @@ class MealLog(BaseModel):
         return payload
 
     @classmethod
-    def from_api_payload(cls, data: dict[str, Any], point_id: Optional[str] = None) -> MealLog:
+    def from_api_payload(
+        cls, data: dict[str, Any], point_id: Optional[str] = None
+    ) -> MealLog:
         """Parse Google Health API v4 response payload into MealLog."""
         if "response" in data and isinstance(data["response"], dict):
             data = data["response"]
@@ -288,7 +312,9 @@ class MealLog(BaseModel):
 
         log_data = data.get("nutritionLog", data)
         interval_data = log_data.get("interval", {})
-        start_time = interval_data.get("startTime", datetime.now(timezone.utc).isoformat())
+        start_time = interval_data.get(
+            "startTime", datetime.now(timezone.utc).isoformat()
+        )
         end_time = interval_data.get("endTime", start_time)
 
         energy_data = log_data.get("energy", {})
@@ -322,7 +348,9 @@ class MealLog(BaseModel):
                 unit=str(serving_data.get("unit", "serving")),
             )
 
-        raw_meal_type = log_data.get("mealType", MealType.MEAL_TYPE_UNSPECIFIED.value)
+        raw_meal_type = log_data.get(
+            "mealType", MealType.MEAL_TYPE_UNSPECIFIED.value
+        )
         meal_type = MealType.from_string(raw_meal_type)
 
         return cls(
@@ -344,6 +372,8 @@ class MealLog(BaseModel):
 
 
 class MacroSummary(BaseModel):
+    """Rollup summary of daily macros and nutrients across multiple meals."""
+
     total_calories: float = 0.0
     total_protein: float = 0.0
     total_carbs: float = 0.0
@@ -354,25 +384,32 @@ class MacroSummary(BaseModel):
 
     @property
     def meal_count(self) -> int:
+        """Return the number of meals included in the summary."""
         return len(self.meals)
 
     def add_meal(self, meal: MealLog) -> None:
+        """Add a meal and aggregate its macronutrients and nutrients."""
         self.meals.append(meal)
         self.total_calories += meal.calories_kcal
         self.total_protein += meal.protein_g
         self.total_carbs += meal.carbs_g
         self.total_fat += meal.fat_g
 
-        # Protein and carbohydrates are excluded: they are already totalled above, and
-        # repeating them here would show the same grams twice.
+        # Protein and carbohydrates are excluded: already totalled above.
         for entry in meal.nutrients:
             name = entry.nutrient.upper()
-            if name in (NutrientType.PROTEIN.value, NutrientType.CARBOHYDRATES.value):
+            if name in (
+                NutrientType.PROTEIN.value,
+                NutrientType.CARBOHYDRATES.value,
+            ):
                 continue
-            self.nutrient_totals[name] = self.nutrient_totals.get(name, 0.0) + entry.quantity.grams
+            self.nutrient_totals[name] = (
+                self.nutrient_totals.get(name, 0.0) + entry.quantity.grams
+            )
 
     @classmethod
     def from_meals(cls, meals: List[MealLog]) -> MacroSummary:
+        """Construct a MacroSummary rollup from a list of MealLog objects."""
         summary = cls()
         for meal in meals:
             summary.add_meal(meal)

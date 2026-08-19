@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import base64
+import json
 import os
+import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
-import urllib.parse
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+from rich.console import Console
+from rich.panel import Panel
 
 from nutrilog.storage import (
     delete_tokens,
@@ -24,24 +28,33 @@ SCOPES = [
     "openid",
 ]
 
-import base64
-
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 
 # Default bundled desktop client credentials for zero-friction user OAuth
-_DEFAULT_CLIENT_ID_B64 = "MjgxODQyMDk3MjUxLXBucGNpczlhOTN0cGVjNjQyMjFiY2o2MjNrdXZpYjNjLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29t"
+_DEFAULT_CLIENT_ID_B64 = (
+    "MjgxODQyMDk3MjUxLXBucGNpczlhOTN0cGVjNjQyMjFiY2o2MjNrdXZpYjNj"
+    "LmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29t"
+)
 _DEFAULT_CLIENT_SECRET_B64 = "R09DU1BYLWNyZ0RDbHBoQWEwdWxKOUEyOTBwOTRxSEphNHk="
 
 DEFAULT_CLIENT_ID = base64.b64decode(_DEFAULT_CLIENT_ID_B64).decode("utf-8")
-DEFAULT_CLIENT_SECRET = base64.b64decode(_DEFAULT_CLIENT_SECRET_B64).decode("utf-8")
+DEFAULT_CLIENT_SECRET = base64.b64decode(_DEFAULT_CLIENT_SECRET_B64).decode(
+    "utf-8"
+)
 
 
 def is_headless_or_ssh() -> bool:
-    """Detect if running in an SSH session, headless environment, or without GUI display."""
-    if os.getenv("SSH_CLIENT") or os.getenv("SSH_TTY") or os.getenv("SSH_CONNECTION"):
+    """Detect an SSH session, headless environment, or missing display."""
+    if (
+        os.getenv("SSH_CLIENT")
+        or os.getenv("SSH_TTY")
+        or os.getenv("SSH_CONNECTION")
+    ):
         return True
-    if os.name == "posix" and not (os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")):
+    if os.name == "posix" and not (
+        os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")
+    ):
         return True
     return False
 
@@ -53,7 +66,9 @@ def extract_auth_code(input_str: str) -> str:
         if cleaned.startswith("code="):
             code_part = cleaned.split("code=", 1)[1]
             return urllib.parse.unquote(code_part.split("&", 1)[0])
-        if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+        if not (
+            cleaned.startswith("http://") or cleaned.startswith("https://")
+        ):
             cleaned = "http://" + cleaned
         parsed = urllib.parse.urlparse(cleaned)
         qs = urllib.parse.parse_qs(parsed.query)
@@ -65,18 +80,23 @@ def extract_auth_code(input_str: str) -> str:
     return cleaned
 
 
-def get_client_config(client_config_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
-    """Retrieve client credentials from explicit path, env vars, or packaged defaults."""
-    if client_config_path and client_config_path.exists():
-        import json
+def get_client_config(
+    client_config_path: Optional[Path] = None,
+) -> Optional[dict[str, Any]]:
+    """Retrieve client credentials from a path, env vars, or defaults.
 
+    The packaged defaults are used when neither of the others is present.
+    """
+    if client_config_path and client_config_path.exists():
         try:
             return json.loads(client_config_path.read_text(encoding="utf-8"))
         except Exception:
             pass
 
     env_id = os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
-    env_secret = os.getenv("NUTRILOG_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
+    env_secret = os.getenv("NUTRILOG_CLIENT_SECRET") or os.getenv(
+        "GOOGLE_CLIENT_SECRET"
+    )
     if env_id and env_secret:
         return {
             "installed": {
@@ -145,8 +165,9 @@ def _create_flow(client_config_path: Optional[Path] = None) -> InstalledAppFlow:
     client_config = get_client_config()
     if not client_config:
         raise ValueError(
-            "No OAuth client credentials found. Please provide a client_secrets.json file, "
-            "set NUTRILOG_CLIENT_ID and NUTRILOG_CLIENT_SECRET, or run 'nutrilog auth setup'."
+            "No OAuth client credentials found. Please provide a "
+            "client_secrets.json file, set NUTRILOG_CLIENT_ID and "
+            "NUTRILOG_CLIENT_SECRET, or run 'nutrilog auth setup'."
         )
     return InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
 
@@ -159,7 +180,9 @@ def login(
     """Run local server OAuth 2.0 flow to obtain user credentials."""
     flow = _create_flow(client_config_path)
 
-    should_open = open_browser if open_browser is not None else (not is_headless_or_ssh())
+    should_open = (
+        open_browser if open_browser is not None else (not is_headless_or_ssh())
+    )
 
     creds = flow.run_local_server(
         port=port,
@@ -176,35 +199,46 @@ def login_remote(
     client_config_path: Optional[Path] = None,
     input_callback: Optional[Callable[[str], str]] = None,
 ) -> Credentials:
-    """Run console/remote copy-paste OAuth 2.0 flow for remote SSH or browserless environments."""
+    """Run the copy-paste OAuth 2.0 flow.
+
+    For remote SSH or otherwise browserless environments.
+    """
     flow = _create_flow(client_config_path)
     flow.redirect_uri = "http://localhost"
 
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+    auth_url, _ = flow.authorization_url(
+        prompt="consent", access_type="offline"
+    )
 
     if input_callback:
         raw_input = input_callback(auth_url)
     else:
-        from rich.console import Console
-        from rich.panel import Panel
-
         c = Console()
         c.print()
         c.print(
             Panel.fit(
-                f"[bold cyan]1. Open this URL in your local browser:[/bold cyan]\n\n"
-                f"[bold underline link={auth_url}]{auth_url}[/bold underline link]\n\n"
+                f"[bold cyan]1. Open this URL in your local browser:"
+                f"[/bold cyan]\n\n"
+                f"[bold underline link={auth_url}]{auth_url}"
+                f"[/bold underline link]\n\n"
                 f"[bold cyan]2. Grant consent:[/bold cyan]\n"
-                f"   Your browser will redirect to a URL starting with [green]http://localhost/?code=...[/green]\n"
-                f"   (The browser page will display [italic]\"This site can't be reached\"[/italic]—this is expected!)\n\n"
+                f"   Your browser will redirect to a URL starting with "
+                f"[green]http://localhost/?code=...[/green]\n"
+                f'   (The browser page will display [italic]"This site '
+                f"can't be reached\"[/italic]—this is expected!)\n\n"
                 f"[bold cyan]3. Copy the URL:[/bold cyan]\n"
-                f"   Copy the [bold yellow]ENTIRE URL[/bold yellow] from your browser's address bar and paste it below.",
-                title="[bold blue]Google OAuth Remote Authorization[/bold blue]",
+                f"   Copy the [bold yellow]ENTIRE URL[/bold yellow] from "
+                f"your browser's address bar and paste it below.",
+                title=(
+                    "[bold blue]Google OAuth Remote Authorization[/bold blue]"
+                ),
                 border_style="blue",
             )
         )
         c.print()
-        raw_input = input("Paste the redirected URL (or code) from address bar: ")
+        raw_input = input(
+            "Paste the redirected URL (or code) from address bar: "
+        )
 
     code = extract_auth_code(raw_input)
     flow.fetch_token(code=code)
@@ -220,7 +254,9 @@ login_manual = login_remote
 def get_auth_status() -> dict[str, Any]:
     """Get the current authentication status and metadata."""
     creds = get_credentials()
-    has_custom = bool(os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID"))
+    has_custom = bool(
+        os.getenv("NUTRILOG_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+    )
     if not creds:
         return {
             "authenticated": False,

@@ -1,4 +1,4 @@
-"""Secure local storage management for Nutrilog credentials and configuration."""
+"""Secure storage management for Nutrilog credentials and configuration."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import zoneinfo
 from datetime import timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any, Optional, Union
+
 from dateutil import tz
 
 ENV_CONFIG_DIR = "NUTRILOG_CONFIG_DIR"
@@ -42,7 +43,7 @@ _ZONEINFO_MARKER = "zoneinfo/"
 
 
 def get_machine_timezone_name() -> Optional[str]:
-    """The system's IANA zone name (e.g. "Australia/Sydney"), if one can be determined."""
+    """The system's IANA zone name, e.g. "Australia/Sydney", if any."""
     env_tz = os.getenv("TZ")
     if env_tz:
         try:
@@ -51,7 +52,7 @@ def get_machine_timezone_name() -> Optional[str]:
         except Exception:
             pass  # TZ can hold a bare offset, which names no zone.
 
-    # The symlink target ends with the zone name, e.g. /var/db/timezone/zoneinfo/Australia/Sydney
+    # Symlink target ends with zone name (e.g. .../zoneinfo/Australia/Sydney).
     try:
         if _LOCALTIME_LINK.is_symlink():
             target = str(_LOCALTIME_LINK.resolve())
@@ -67,13 +68,15 @@ def get_machine_timezone_name() -> Optional[str]:
 def get_machine_timezone() -> tzinfo:
     """Return the user's machine/system local timezone.
 
-    Deliberately not `datetime.now().astimezone().tzinfo`: that captures today's offset as a
-    fixed value, so a zone with daylight saving keeps reporting the offset in force when the
-    process started. Sydney would stamp December meals +10 instead of +11, putting them an hour
-    out and pushing late-evening ones onto the wrong civil day.
+    Deliberately not `datetime.now().astimezone().tzinfo`: that captures
+    today's offset as a fixed value, so a zone with daylight saving keeps
+    reporting the offset in force when the process started. Sydney would
+    stamp December meals +10 instead of +11, putting them an hour out and
+    pushing late-evening ones onto the wrong civil day.
 
-    A named zone is preferred over `tzlocal` because both resolve the offset per datetime, but
-    only the named one reports which zone it is when displayed.
+    A named zone is preferred over `tzlocal` because both resolve the offset
+    per datetime, but only the named one reports which zone it is when
+    displayed.
     """
     name = get_machine_timezone_name()
     if name:
@@ -82,7 +85,7 @@ def get_machine_timezone() -> tzinfo:
 
 
 def resolve_timezone(tz_input: Union[str, tzinfo, None]) -> tzinfo:
-    """Resolve a string, abbreviation, offset, or tzinfo into a valid tzinfo object."""
+    """Resolve a string, alias, offset, or tzinfo into a valid tzinfo."""
     if tz_input is None:
         return get_machine_timezone()
     if isinstance(tz_input, tzinfo):
@@ -102,7 +105,9 @@ def resolve_timezone(tz_input: Union[str, tzinfo, None]) -> tzinfo:
         pass
 
     offset_match = re.match(
-        r"^(?:UTC|GMT)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$", tz_str, re.IGNORECASE
+        r"^(?:UTC|GMT)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$",
+        tz_str,
+        re.IGNORECASE,
     )
     if offset_match:
         sign = -1 if offset_match.group(1) == "-" else 1
@@ -118,7 +123,7 @@ def resolve_timezone(tz_input: Union[str, tzinfo, None]) -> tzinfo:
 
 
 def get_config_dir() -> Path:
-    """Return the active configuration directory and ensure it exists with secure permissions."""
+    """Return active config directory with secure permissions ensured."""
     custom_dir = os.getenv(ENV_CONFIG_DIR)
     config_dir = Path(custom_dir) if custom_dir else DEFAULT_CONFIG_DIR
     if not config_dir.exists():
@@ -132,10 +137,12 @@ def get_config_dir() -> Path:
 
 
 def get_tokens_path() -> Path:
+    """Return path to the tokens storage JSON file."""
     return get_config_dir() / "tokens.json"
 
 
 def get_config_path() -> Path:
+    """Return path to the configuration storage JSON file."""
     return get_config_dir() / "config.json"
 
 
@@ -192,10 +199,14 @@ def load_config() -> dict[str, Any]:
 
 
 def get_configured_timezone_name() -> Optional[str]:
-    """Retrieve the configured timezone name from config, or None if using machine local."""
+    """Retrieve configured timezone name, or None if using machine local."""
     cfg = load_config()
     tz_val = cfg.get("timezone")
-    if tz_val and str(tz_val).strip() and str(tz_val).strip().lower() not in ("auto", "local", "system"):
+    if (
+        tz_val
+        and str(tz_val).strip()
+        and str(tz_val).strip().lower() not in ("auto", "local", "system")
+    ):
         return str(tz_val).strip()
     return None
 
@@ -221,11 +232,17 @@ def get_user_timezone(tz_override: Optional[str] = None) -> tzinfo:
 def set_user_timezone(tz_name: Optional[str]) -> Optional[str]:
     """Set or clear the user configured timezone.
 
-    If tz_name is None, empty, or 'auto'/'system'/'local', removes the configured timezone
-    so Nutrilog defaults to the machine's local timezone.
+    If tz_name is None, empty, or 'auto'/'system'/'local', removes configured
+    timezone so Nutrilog defaults to the machine's local timezone.
     """
     cfg = load_config()
-    if not tz_name or tz_name.strip().lower() in ("auto", "local", "system", "none", "clear"):
+    if not tz_name or tz_name.strip().lower() in (
+        "auto",
+        "local",
+        "system",
+        "none",
+        "clear",
+    ):
         cfg.pop("timezone", None)
         save_config(cfg)
         return None

@@ -1,22 +1,24 @@
 """Unit tests for nutrilog.storage."""
 
-import os
 import stat
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 import pytest
 
+from nutrilog.models import TimeInterval
 from nutrilog.storage import (
     ENV_CONFIG_DIR,
     delete_tokens,
     get_config_dir,
+    get_configured_timezone_name,
     get_machine_timezone,
-    load_config,
+    get_user_timezone,
     load_tokens,
     resolve_timezone,
-    save_config,
     save_tokens,
+    set_user_timezone,
 )
 
 
@@ -61,15 +63,6 @@ def test_save_and_load_tokens(temp_config_dir: Path):
 
 
 def test_timezone_storage_and_resolution(temp_config_dir: Path):
-    from datetime import timedelta, timezone
-    from nutrilog.storage import (
-        get_configured_timezone_name,
-        get_machine_timezone,
-        get_user_timezone,
-        resolve_timezone,
-        set_user_timezone,
-    )
-
     # Defaults to machine timezone when not set
     assert get_configured_timezone_name() is None
     assert get_user_timezone() == get_machine_timezone()
@@ -102,7 +95,7 @@ def test_timezone_storage_and_resolution(temp_config_dir: Path):
 
 @pytest.fixture
 def system_timezone(monkeypatch: pytest.MonkeyPatch):
-    """Set the process timezone the way the OS would, restoring it afterwards."""
+    """Set process timezone the way the OS would, restoring it afterwards."""
 
     def _set(name: str):
         monkeypatch.setenv("TZ", name)
@@ -114,10 +107,10 @@ def system_timezone(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_machine_timezone_tracks_dst(system_timezone):
-    """A fixed-offset snapshot goes an hour wrong the moment the zone changes offset.
+    """A fixed-offset snapshot goes wrong when the zone changes offset.
 
-    Sydney is UTC+10 in August and UTC+11 in December; a machine timezone captured once
-    would report +10 for both and misplace every summer meal.
+    Sydney is UTC+10 in August and UTC+11 in December; a machine timezone
+    captured once would misreport December.
     """
     system_timezone("Australia/Sydney")
     machine_tz = get_machine_timezone()
@@ -133,8 +126,12 @@ def test_machine_timezone_handles_northern_hemisphere_dst(system_timezone):
     system_timezone("America/New_York")
     machine_tz = get_machine_timezone()
 
-    assert datetime(2026, 1, 15, 12, 0, tzinfo=machine_tz).utcoffset() == timedelta(hours=-5)
-    assert datetime(2026, 7, 15, 12, 0, tzinfo=machine_tz).utcoffset() == timedelta(hours=-4)
+    assert datetime(
+        2026, 1, 15, 12, 0, tzinfo=machine_tz
+    ).utcoffset() == timedelta(hours=-5)
+    assert datetime(
+        2026, 7, 15, 12, 0, tzinfo=machine_tz
+    ).utcoffset() == timedelta(hours=-4)
 
 
 def test_resolve_timezone_auto_tracks_dst(system_timezone):
@@ -143,13 +140,13 @@ def test_resolve_timezone_auto_tracks_dst(system_timezone):
 
     resolved = resolve_timezone("auto")
 
-    assert datetime(2026, 12, 19, 12, 0, tzinfo=resolved).utcoffset() == timedelta(hours=11)
+    assert datetime(
+        2026, 12, 19, 12, 0, tzinfo=resolved
+    ).utcoffset() == timedelta(hours=11)
 
 
 def test_logged_meal_offset_follows_dst(system_timezone):
-    """The end-to-end consequence: a summer meal must be stamped +11, not +10."""
-    from nutrilog.models import TimeInterval
-
+    """Logged meal offset must follow DST (e.g. +11 in Sydney summer)."""
     system_timezone("Australia/Sydney")
     summer_meal = datetime(2026, 12, 19, 9, 30, tzinfo=get_machine_timezone())
 
@@ -159,7 +156,7 @@ def test_logged_meal_offset_follows_dst(system_timezone):
 
 
 def test_machine_timezone_is_named_not_anonymous(system_timezone):
-    """`config show` prints this: "Australia/Sydney" is useful, "tzlocal()" is not."""
+    """`config show` prints named zone: "Australia/Sydney", not "tzlocal()"."""
     system_timezone("Australia/Sydney")
 
     assert str(get_machine_timezone()) == "Australia/Sydney"
@@ -170,4 +167,6 @@ def test_machine_timezone_falls_back_when_zone_is_unnameable(system_timezone):
     system_timezone("UTC+5")
     machine_tz = get_machine_timezone()
 
-    assert datetime(2026, 8, 19, 12, 0, tzinfo=machine_tz).utcoffset() is not None
+    assert (
+        datetime(2026, 8, 19, 12, 0, tzinfo=machine_tz).utcoffset() is not None
+    )

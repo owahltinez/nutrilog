@@ -1,7 +1,9 @@
 """Unit tests for nutrilog.models."""
 
 from datetime import datetime, timedelta, timezone
+
 import pytest
+
 from nutrilog.models import (
     Energy,
     GramsQuantity,
@@ -96,24 +98,32 @@ def test_meal_log_payload_serialization():
 def test_macro_summary():
     meal1 = MealLog(
         foodDisplayName="Meal 1",
-        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"
+        ),
         energy=Energy(kcal=400),
         totalCarbohydrate=GramsQuantity(grams=30),
         totalFat=GramsQuantity(grams=10),
         nutrients=[
             NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=25)),
-            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=5)),
+            NutrientEntry(
+                nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=5)
+            ),
         ],
     )
     meal2 = MealLog(
         foodDisplayName="Meal 2",
-        interval=TimeInterval(startTime="2026-08-17T18:00:00Z", endTime="2026-08-17T18:00:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-17T18:00:00Z", endTime="2026-08-17T18:00:00Z"
+        ),
         energy=Energy(kcal=600),
         totalCarbohydrate=GramsQuantity(grams=50),
         totalFat=GramsQuantity(grams=20),
         nutrients=[
             NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=35)),
-            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=4)),
+            NutrientEntry(
+                nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=4)
+            ),
         ],
     )
 
@@ -126,9 +136,9 @@ def test_macro_summary():
     assert summary.nutrient_totals == {"DIETARY_FIBER": 9.0}
 
 
-# Authoritative Nutrient enum from the Google Health API v4 discovery document
+# Authoritative Nutrient enum from the Google Health API v4 discovery doc
 # (https://health.googleapis.com/$discovery/rest?version=v4), at
-# schemas/NutrientQuantity/properties/nutrient. Sending any other value is a 400.
+# schemas/NutrientQuantity/properties/nutrient. Other values yield 400.
 V4_NUTRIENT_ENUM = frozenset(
     {
         "NUTRIENT_UNSPECIFIED",
@@ -176,14 +186,18 @@ V4_NUTRIENT_ENUM = frozenset(
 
 
 def test_nutrient_type_values_exist_in_api_enum():
-    invalid = sorted(n.value for n in NutrientType if n.value not in V4_NUTRIENT_ENUM)
+    invalid = sorted(
+        n.value for n in NutrientType if n.value not in V4_NUTRIENT_ENUM
+    )
     assert invalid == []
 
 
 def _fiber_meal(grams: float) -> MealLog:
     return MealLog(
         foodDisplayName="Test",
-        interval=TimeInterval(startTime="2026-08-18T12:00:00Z", endTime="2026-08-18T12:01:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-18T12:00:00Z", endTime="2026-08-18T12:01:00Z"
+        ),
         energy=Energy(kcal=236),
         nutrients=[
             NutrientEntry(
@@ -196,18 +210,30 @@ def _fiber_meal(grams: float) -> MealLog:
 
 def test_fiber_written_as_dietary_fiber():
     nutrients = _fiber_meal(1.9).to_api_payload()["nutritionLog"]["nutrients"]
-    assert nutrients == [{"nutrient": "DIETARY_FIBER", "quantity": {"grams": 1.9}}]
+    assert nutrients == [
+        {"nutrient": "DIETARY_FIBER", "quantity": {"grams": 1.9}}
+    ]
 
 
 def test_fiber_read_from_dietary_fiber_nutrient():
     payload = {
         "nutritionLog": {
             "foodDisplayName": "Test",
-            "interval": {"startTime": "2026-08-18T12:00:00Z", "endTime": "2026-08-18T12:01:00Z"},
-            "nutrients": [{"quantity": {"grams": 1.9}, "nutrient": "DIETARY_FIBER"}],
+            "interval": {
+                "startTime": "2026-08-18T12:00:00Z",
+                "endTime": "2026-08-18T12:01:00Z",
+            },
+            "nutrients": [
+                {"quantity": {"grams": 1.9}, "nutrient": "DIETARY_FIBER"}
+            ],
         }
     }
-    assert MealLog.from_api_payload(payload).nutrient_grams(NutrientType.DIETARY_FIBER) == 1.9
+    assert (
+        MealLog.from_api_payload(payload).nutrient_grams(
+            NutrientType.DIETARY_FIBER
+        )
+        == 1.9
+    )
 
 
 def test_carbs_fall_back_to_carbohydrates_nutrient():
@@ -215,8 +241,13 @@ def test_carbs_fall_back_to_carbohydrates_nutrient():
     payload = {
         "nutritionLog": {
             "foodDisplayName": "Test",
-            "interval": {"startTime": "2026-08-18T12:00:00Z", "endTime": "2026-08-18T12:01:00Z"},
-            "nutrients": [{"quantity": {"grams": 7.7}, "nutrient": "CARBOHYDRATES"}],
+            "interval": {
+                "startTime": "2026-08-18T12:00:00Z",
+                "endTime": "2026-08-18T12:01:00Z",
+            },
+            "nutrients": [
+                {"quantity": {"grams": 7.7}, "nutrient": "CARBOHYDRATES"}
+            ],
         }
     }
     assert MealLog.from_api_payload(payload).carbs_g == 7.7
@@ -226,12 +257,18 @@ def test_meal_log_reads_sugar_saturated_fat_and_sodium():
     """Nutrient getters must read the values nutrilog writes."""
     meal = MealLog(
         foodDisplayName="Musashi bar",
-        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"
+        ),
         energy=Energy(kcal=236),
         nutrients=[
             NutrientEntry(nutrient="SUGAR", quantity=GramsQuantity(grams=3.7)),
-            NutrientEntry(nutrient="SATURATED_FAT", quantity=GramsQuantity(grams=4.4)),
-            NutrientEntry(nutrient="SODIUM", quantity=GramsQuantity(grams=0.242)),
+            NutrientEntry(
+                nutrient="SATURATED_FAT", quantity=GramsQuantity(grams=4.4)
+            ),
+            NutrientEntry(
+                nutrient="SODIUM", quantity=GramsQuantity(grams=0.242)
+            ),
         ],
     )
     assert meal.nutrient_grams(NutrientType.SUGAR) == 3.7
@@ -243,7 +280,9 @@ def test_meal_log_reads_sugar_saturated_fat_and_sodium():
 def test_meal_log_missing_nutrients_read_zero():
     meal = MealLog(
         foodDisplayName="Plain",
-        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:00:00Z"
+        ),
         energy=Energy(kcal=10),
     )
     assert meal.nutrient_grams(NutrientType.SUGAR) == 0.0
@@ -255,16 +294,20 @@ def test_to_api_payload_does_not_duplicate_lowercase_protein():
     """A lowercase 'protein' nutrient must not yield two protein entries."""
     meal = MealLog(
         foodDisplayName="x",
-        interval=TimeInterval(startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:01:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-17T12:00:00Z", endTime="2026-08-17T12:01:00Z"
+        ),
         energy=Energy(kcal=100),
-        nutrients=[NutrientEntry(nutrient="protein", quantity=GramsQuantity(grams=20))],
+        nutrients=[
+            NutrientEntry(nutrient="protein", quantity=GramsQuantity(grams=20))
+        ],
     )
     sent = meal.to_api_payload()["nutritionLog"]["nutrients"]
     assert len([n for n in sent if n["nutrient"].upper() == "PROTEIN"]) == 1
 
 
 def test_from_datetimes_records_utc_offset():
-    """The API ignores the RFC3339 offset, so it must travel as an explicit field."""
+    """API ignores RFC3339 offset, so it must travel as explicit field."""
     dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
 
     interval = TimeInterval.from_datetimes(dt)
@@ -283,7 +326,9 @@ def test_from_datetimes_records_negative_utc_offset():
 
 def test_from_datetimes_offsets_are_computed_per_endpoint():
     """An interval spanning a DST change has two different offsets."""
-    start = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
+    start = datetime(
+        2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10))
+    )
     # 11:00 at +11:00 is 00:00Z, half an hour after the 23:30Z start.
     end = datetime(2026, 8, 19, 11, 0, 0, tzinfo=timezone(timedelta(hours=11)))
 
@@ -294,9 +339,11 @@ def test_from_datetimes_offsets_are_computed_per_endpoint():
 
 
 def test_payload_sends_utc_offsets():
-    """Without these the API stores 0s and the app shows the meal on the wrong day."""
+    """Without offsets, API stores 0s and meal shows on wrong day."""
     dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
-    meal = MealLog(foodDisplayName="Oat Cortado", interval=TimeInterval.from_datetimes(dt))
+    meal = MealLog(
+        foodDisplayName="Oat Cortado", interval=TimeInterval.from_datetimes(dt)
+    )
 
     interval = meal.to_api_payload()["nutritionLog"]["interval"]
 
@@ -322,7 +369,9 @@ def test_payload_omits_utc_offsets_when_unknown():
 
 def test_from_api_payload_round_trips_utc_offsets():
     dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
-    meal = MealLog(foodDisplayName="Oat Cortado", interval=TimeInterval.from_datetimes(dt))
+    meal = MealLog(
+        foodDisplayName="Oat Cortado", interval=TimeInterval.from_datetimes(dt)
+    )
 
     parsed = MealLog.from_api_payload(meal.to_api_payload())
 
@@ -332,7 +381,14 @@ def test_from_api_payload_round_trips_utc_offsets():
 
 def test_nutrient_type_covers_the_whole_api_enum():
     """Caffeine and the vitamins must be loggable without a code change."""
-    for name in ("CAFFEINE", "MAGNESIUM", "VITAMIN_C", "TRANS_FAT", "ZINC", "FOLATE"):
+    for name in (
+        "CAFFEINE",
+        "MAGNESIUM",
+        "VITAMIN_C",
+        "TRANS_FAT",
+        "ZINC",
+        "FOLATE",
+    ):
         assert name in NutrientType.__members__
 
 
@@ -340,7 +396,9 @@ def test_nutrient_type_from_string_ignores_separators_and_case():
     assert NutrientType.from_string("caffeine") == NutrientType.CAFFEINE
     assert NutrientType.from_string("Vitamin C") == NutrientType.VITAMIN_C
     assert NutrientType.from_string("vitamin-c") == NutrientType.VITAMIN_C
-    assert NutrientType.from_string("SATURATED_FAT") == NutrientType.SATURATED_FAT
+    assert (
+        NutrientType.from_string("SATURATED_FAT") == NutrientType.SATURATED_FAT
+    )
 
 
 def test_nutrient_type_from_string_accepts_everyday_names():
@@ -357,16 +415,20 @@ def test_nutrient_type_from_string_rejects_unknown_names():
 
 
 def test_nutrient_type_from_string_rejects_salt():
-    """Salt is not sodium: 1g of salt is ~400mg sodium, so equating them would be wrong."""
+    """Salt is not sodium: 1g salt is ~400mg sodium, so equating is wrong."""
     assert NutrientType.from_string("salt") is None
 
 
 def test_nutrient_grams_reads_any_nutrient():
     meal = MealLog(
         foodDisplayName="Oat Cortado",
-        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"
+        ),
         nutrients=[
-            NutrientEntry(nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)),
+            NutrientEntry(
+                nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)
+            ),
         ],
     )
 
@@ -377,11 +439,15 @@ def test_nutrient_grams_reads_any_nutrient():
 def test_payload_round_trips_arbitrary_nutrients_with_their_unit():
     meal = MealLog(
         foodDisplayName="Oat Cortado",
-        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"
+        ),
         nutrients=[
             NutrientEntry(
                 nutrient=NutrientType.CAFFEINE.value,
-                quantity=GramsQuantity(grams=0.095, userProvidedUnit=WeightUnit.MILLIGRAM),
+                quantity=GramsQuantity(
+                    grams=0.095, userProvidedUnit=WeightUnit.MILLIGRAM
+                ),
             ),
         ],
     )
@@ -389,7 +455,10 @@ def test_payload_round_trips_arbitrary_nutrients_with_their_unit():
     payload = meal.to_api_payload()
     entry = payload["nutritionLog"]["nutrients"][0]
     assert entry["nutrient"] == "CAFFEINE"
-    assert entry["quantity"] == {"grams": 0.095, "userProvidedUnit": "MILLIGRAM"}
+    assert entry["quantity"] == {
+        "grams": 0.095,
+        "userProvidedUnit": "MILLIGRAM",
+    }
 
     parsed = MealLog.from_api_payload(payload)
     assert parsed.nutrient_grams(NutrientType.CAFFEINE) == 0.095
@@ -399,9 +468,13 @@ def test_payload_round_trips_arbitrary_nutrients_with_their_unit():
 def test_payload_omits_user_provided_unit_when_unknown():
     meal = MealLog(
         foodDisplayName="Oat Cortado",
-        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"
+        ),
         nutrients=[
-            NutrientEntry(nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)),
+            NutrientEntry(
+                nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)
+            ),
         ],
     )
 
@@ -411,6 +484,7 @@ def test_payload_omits_user_provided_unit_when_unknown():
 
 def test_macro_summary_totals_arbitrary_nutrients():
     """A nutrient nutrilog has no dedicated field for still rolls up."""
+
     def meal(caffeine_g):
         return MealLog(
             foodDisplayName="Oat Cortado",
@@ -419,7 +493,10 @@ def test_macro_summary_totals_arbitrary_nutrients():
                 endTime="2026-08-19T09:31:00Z",
             ),
             nutrients=[
-                NutrientEntry(nutrient="CAFFEINE", quantity=GramsQuantity(grams=caffeine_g)),
+                NutrientEntry(
+                    nutrient="CAFFEINE",
+                    quantity=GramsQuantity(grams=caffeine_g),
+                ),
             ],
         )
 
@@ -429,11 +506,15 @@ def test_macro_summary_totals_arbitrary_nutrients():
 
 
 def test_macro_summary_excludes_protein_from_nutrient_totals():
-    """Protein already has its own total; repeating it would double-count in display."""
+    """Protein has its own total; repeating it would double-count in view."""
     meal = MealLog(
         foodDisplayName="Eggs",
-        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
-        nutrients=[NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=25))],
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"
+        ),
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=25))
+        ],
     )
 
     summary = MacroSummary.from_meals([meal])
@@ -443,14 +524,18 @@ def test_macro_summary_excludes_protein_from_nutrient_totals():
 
 
 def test_payload_keeps_microgram_precision():
-    """2.4µg is 0.0000024g: rounding to six places would silently make it 2µg."""
+    """2.4µg is 0.0000024g: rounding to 6 places would silently make it 2µg."""
     meal = MealLog(
         foodDisplayName="Supplement",
-        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"
+        ),
         nutrients=[
             NutrientEntry(
                 nutrient=NutrientType.VITAMIN_B12.value,
-                quantity=GramsQuantity(grams=0.0000024, userProvidedUnit=WeightUnit.MICROGRAM),
+                quantity=GramsQuantity(
+                    grams=0.0000024, userProvidedUnit=WeightUnit.MICROGRAM
+                ),
             ),
         ],
     )

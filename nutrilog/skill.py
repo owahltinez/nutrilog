@@ -1,12 +1,12 @@
-"""CLI commands and utilities for installing the packaged Agent Skill for Nutrilog."""
+"""CLI commands and utilities for installing the packaged Agent Skill."""
 
 from __future__ import annotations
 
-from importlib import resources
-import os
-from pathlib import Path
 import shutil
+from importlib import resources
+from pathlib import Path
 from typing import Optional
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -29,9 +29,13 @@ err_console = Console(stderr=True)
 
 
 def packaged_skill() -> Path:
-    """Locate the packaged SKILL.md, whether installed in a wheel or run from source."""
+    """Locate the packaged SKILL.md, in a wheel or a source checkout."""
     try:
-        packaged = Path(str(resources.files("nutrilog") / "skills" / SKILL_NAME / "SKILL.md"))
+        packaged = Path(
+            str(
+                resources.files("nutrilog") / "skills" / SKILL_NAME / "SKILL.md"
+            )
+        )
         if packaged.is_file():
             return packaged
     except Exception:
@@ -42,7 +46,7 @@ def packaged_skill() -> Path:
     if checkout.is_file():
         return checkout
 
-    raise RuntimeError(f"SKILL.md not found in package or repository checkout.")
+    raise RuntimeError("SKILL.md not found in package or repository checkout.")
 
 
 def detected_tools(home: Optional[Path] = None) -> dict[str, Path]:
@@ -95,10 +99,13 @@ def _place(
     if target.exists() or target.is_symlink():
         if not _is_our_skill(target):
             raise ValueError(
-                f"{target} exists and does not contain the '{SKILL_NAME}' skill. Refusing to overwrite."
+                f"{target} exists and does not contain the "
+                f"'{SKILL_NAME}' skill. Refusing to overwrite."
             )
         if not force:
-            raise ValueError(f"{target} already exists. Pass --force to replace it.")
+            raise ValueError(
+                f"{target} already exists. Pass --force to replace it."
+            )
         _remove(target)
 
     target.mkdir(parents=True, exist_ok=True)
@@ -109,7 +116,9 @@ def _place(
             manifest.symlink_to(source)
             return f"Linked   {manifest} -> {source}"
         except OSError as e:
-            err_console.print(f"[yellow]# Symlink failed ({e}); copying instead[/yellow]")
+            err_console.print(
+                f"[yellow]# Symlink failed ({e}); copying instead[/yellow]"
+            )
 
     shutil.copy2(source, manifest)
     return f"Copied   {target}"
@@ -126,7 +135,10 @@ def skill_install_cmd(
     destination: Optional[Path] = typer.Option(
         None,
         "--to",
-        help=f"Specific skills directory to act on (e.g. ~/.gemini/config/skills).",
+        help=(
+            "Specific skills directory to act on "
+            "(e.g. ~/.gemini/config/skills)."
+        ),
     ),
     every: bool = typer.Option(
         False,
@@ -151,7 +163,7 @@ def skill_install_cmd(
         help="Preview actions without making filesystem changes.",
     ),
 ):
-    """Install the Nutrilog Agent Skill so coding assistants can discover and use Nutrilog."""
+    """Install the Skill so coding assistants can discover Nutrilog."""
     try:
         source = packaged_skill()
     except RuntimeError as e:
@@ -170,26 +182,43 @@ def skill_install_cmd(
 
     for target in targets:
         if dry_run:
-            if (target.exists() or target.is_symlink()) and not _is_our_skill(target):
-                console.print(f"[bold red]Would REFUSE[/bold red]  {target}: not the {SKILL_NAME} skill")
+            if (target.exists() or target.is_symlink()) and not _is_our_skill(
+                target
+            ):
+                console.print(
+                    f"[bold red]Would REFUSE[/bold red]  {target}: "
+                    f"not the {SKILL_NAME} skill"
+                )
             elif target.exists() and not force:
-                console.print(f"[bold yellow]Would REFUSE[/bold yellow]  {target}: exists (needs --force)")
+                console.print(
+                    f"[bold yellow]Would REFUSE[/bold yellow]  {target}: "
+                    "exists (needs --force)"
+                )
             else:
-                console.print(f"[bold green]Would install[/bold green] {target}")
+                console.print(
+                    f"[bold green]Would install[/bold green] {target}"
+                )
             continue
 
         try:
             msg = _place(source, target, link=link, force=force)
             console.print(f"[bold green]✓[/bold green] {msg}")
         except Exception as e:
-            err_console.print(f"[bold red]Error installing to {target}:[/bold red] {e}")
+            err_console.print(
+                f"[bold red]Error installing to {target}:[/bold red] {e}"
+            )
             raise typer.Exit(code=1)
 
     if found and not every and destination is None:
-        console.print("\n[dim]# Also found tool-specific skills directories:[/dim]")
+        console.print(
+            "\n[dim]# Also found tool-specific skills directories:[/dim]"
+        )
         for name, directory in found.items():
             console.print(f"[dim]#   {name}: {directory / SKILL_NAME}[/dim]")
-        console.print("[dim]# Install into all of them with: nutrilog skill install --all[/dim]")
+        console.print(
+            "[dim]# Install into all of them with: "
+            "nutrilog skill install --all[/dim]"
+        )
 
 
 @skill_app.command("uninstall")
@@ -237,7 +266,9 @@ def skill_uninstall_cmd(
             _remove(target)
             console.print(f"[bold green]✓ Removed[/bold green] {target}")
         except Exception as e:
-            err_console.print(f"[bold red]Error removing {target}:[/bold red] {e}")
+            err_console.print(
+                f"[bold red]Error removing {target}:[/bold red] {e}"
+            )
             raise typer.Exit(code=1)
 
 

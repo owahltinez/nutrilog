@@ -1,11 +1,17 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 import pytest
 
 from nutrilog.models import MealType, NutrientType
-from nutrilog.parser import ParseError, infer_meal_type, parse_shorthand, parse_time_str
-from nutrilog.units import WeightUnit
+from nutrilog.parser import (
+    ParseError,
+    infer_meal_type,
+    parse_shorthand,
+    parse_time_str,
+)
 from nutrilog.storage import ENV_CONFIG_DIR
+from nutrilog.units import WeightUnit
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +69,7 @@ def test_parse_shorthand_explicit_labels():
 
 
 def test_parse_shorthand_calorie_estimation():
-    # When calories are omitted, calculate: 30*4 + 40*4 + 10*9 = 120 + 160 + 90 = 370 kcal
+    # If calories omitted: 30*4 + 40*4 + 10*9 = 120 + 160 + 90 = 370 kcal
     input_str = "30p 40c 10f Oatmeal"
     result = parse_shorthand(input_str)
 
@@ -79,7 +85,9 @@ def test_parse_shorthand_no_name():
     fixed_time = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
     # Pin the zone too: meal type is inferred in local time, so a bare UTC
     # timestamp makes the expected meal type depend on the machine's timezone.
-    result = parse_shorthand(input_str, default_time=fixed_time, tz=timezone.utc)
+    result = parse_shorthand(
+        input_str, default_time=fixed_time, tz=timezone.utc
+    )
 
     assert result.protein == 25.0
     assert result.calories == 180.0
@@ -100,7 +108,9 @@ def test_parse_shorthand_empty():
 
 
 def test_parse_shorthand_with_custom_meal_type():
-    result = parse_shorthand("30p 400k Protein Shake", default_meal_type=MealType.SNACK)
+    result = parse_shorthand(
+        "30p 400k Protein Shake", default_meal_type=MealType.SNACK
+    )
     meal_log = result.to_meal_log()
     assert meal_log.mealType == MealType.SNACK
     assert meal_log.foodDisplayName == "Protein Shake"
@@ -122,7 +132,6 @@ def test_parse_time_str():
 
 
 def test_parse_time_str_with_timezone():
-    from datetime import timedelta, timezone
     aest = timezone(timedelta(hours=10))
     base = datetime(2026, 8, 18, 0, 0, 0, tzinfo=aest)
     parsed = parse_time_str("09:30", base_date=base, tz=aest)
@@ -136,7 +145,9 @@ def test_parse_shorthand_saturated_fat_and_sodium():
         "20p 8.3f saturated fat: 4.4g sodium: 242mg Bar", tz=timezone.utc
     )
 
-    nutrients = {n.nutrient: n.quantity.grams for n in result.to_meal_log().nutrients}
+    nutrients = {
+        n.nutrient: n.quantity.grams for n in result.to_meal_log().nutrients
+    }
     assert nutrients["SATURATED_FAT"] == 4.4
     assert nutrients["SODIUM"] == pytest.approx(0.242)
     assert result.name == "Bar"
@@ -149,7 +160,7 @@ def test_parse_shorthand_accepts_british_fibre_spelling():
 
 
 def test_parse_shorthand_sodium_honours_gram_unit():
-    """'0.5g sodium' and '500mg sodium' are the same half gram, whichever way it is written."""
+    """'0.5g sodium' and '500mg sodium' represent the same half gram."""
     for text in (
         "sodium: 0.5g Test",
         "0.5g sodium Test",
@@ -188,7 +199,10 @@ def test_records_the_unit_the_value_was_written_in():
     """Stored so the Health app can show 95mg rather than 0.095g."""
     result = parse_shorthand("Oat Cortado caffeine: 95mg")
 
-    assert result.nutrients[NutrientType.CAFFEINE].userProvidedUnit == WeightUnit.MILLIGRAM
+    assert (
+        result.nutrients[NutrientType.CAFFEINE].userProvidedUnit
+        == WeightUnit.MILLIGRAM
+    )
 
 
 def test_parses_microgram_nutrients():
@@ -211,10 +225,15 @@ def test_nutrient_with_an_unrecognised_unit_is_an_error():
 
 
 def test_macros_stay_unitless_shorthand():
-    """The four macros keep their single letters; only the long tail needs names."""
+    """The four macros keep single letters; only long tail needs names."""
     result = parse_shorthand("38p 18f 54c 580k Tofu Bowl")
 
-    assert (result.protein, result.fat, result.carbs, result.calories) == (38.0, 18.0, 54.0, 580.0)
+    assert (result.protein, result.fat, result.carbs, result.calories) == (
+        38.0,
+        18.0,
+        54.0,
+        580.0,
+    )
     assert result.name == "Tofu Bowl"
 
 
@@ -240,11 +259,14 @@ def test_nutrient_names_ignore_separators_and_case():
 
 
 def test_grams_written_for_a_milligram_nutrient_are_kept_as_written():
-    """0.45g of sodium is 450mg; the unit is recorded, the grams are not rescaled."""
+    """0.45g of sodium is 450mg; unit is kept and grams are not rescaled."""
     result = parse_shorthand("Eggs sodium: 0.45g")
 
     assert _grams(result, NutrientType.SODIUM) == pytest.approx(0.45)
-    assert result.nutrients[NutrientType.SODIUM].userProvidedUnit == WeightUnit.GRAM
+    assert (
+        result.nutrients[NutrientType.SODIUM].userProvidedUnit
+        == WeightUnit.GRAM
+    )
 
 
 def test_parsed_nutrients_reach_the_meal_log():

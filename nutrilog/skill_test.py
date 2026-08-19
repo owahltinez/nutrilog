@@ -1,6 +1,7 @@
 """Unit tests for nutrilog.skill."""
 
 from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -85,7 +86,9 @@ def test_place_symlink(mock_home: Path):
 
 def test_cli_skill_install_dry_run(mock_home: Path):
     dest = mock_home / "agent_skills"
-    result = runner.invoke(app, ["skill", "install", "--to", str(dest), "--dry-run"])
+    result = runner.invoke(
+        app, ["skill", "install", "--to", str(dest), "--dry-run"]
+    )
     assert result.exit_code == 0
     assert "Would install" in result.stdout
     assert not dest.exists()

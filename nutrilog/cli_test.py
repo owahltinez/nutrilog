@@ -2,7 +2,8 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 import pytest
 from typer.testing import CliRunner
 
@@ -37,12 +38,14 @@ def test_cli_version():
 
 def test_cli_no_args_shows_help(temp_config_dir: Path):
     result = runner.invoke(app, [])
-    assert result.exit_code == 0 or result.exit_code == 2
+    assert result.exit_code in {0, 2}
     assert "Usage" in result.stdout or "help" in result.stdout.lower()
 
 
 def test_cli_dry_run_explicit_log_command(temp_config_dir: Path):
-    result = runner.invoke(app, ["log", "38p 18f 54c 580k Tofu Soba Bowl", "--dry-run"])
+    result = runner.invoke(
+        app, ["log", "38p 18f 54c 580k Tofu Soba Bowl", "--dry-run"]
+    )
     assert result.exit_code == 0
     assert "Dry Run" in result.stdout
     assert "Tofu Soba Bowl" in result.stdout
@@ -51,7 +54,9 @@ def test_cli_dry_run_explicit_log_command(temp_config_dir: Path):
 
 
 def test_cli_json_output(temp_config_dir: Path):
-    result = runner.invoke(app, ["log", "30p 400k Protein Shake", "--dry-run", "--json"])
+    result = runner.invoke(
+        app, ["log", "30p 400k Protein Shake", "--dry-run", "--json"]
+    )
     assert result.exit_code == 0
     parsed_json = json.loads(result.stdout)
     assert parsed_json["name"] == "Protein Shake"
@@ -90,14 +95,20 @@ def test_cli_history_default_today(temp_config_dir: Path):
         id="meal-1",
         foodDisplayName="Chicken Rice",
         mealType=MealType.LUNCH,
-        interval=TimeInterval(startTime="2026-08-18T12:30:00Z", endTime="2026-08-18T12:30:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-18T12:30:00Z", endTime="2026-08-18T12:30:00Z"
+        ),
         energy=Energy(kcal=650),
         totalCarbohydrate=GramsQuantity(grams=70),
         totalFat=GramsQuantity(grams=15),
-        nutrients=[NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=45))],
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=45))
+        ],
     )
 
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]
+    ):
         result = runner.invoke(app, ["history"])
         assert result.exit_code == 0
         assert "Meal History" in result.stdout
@@ -113,12 +124,18 @@ def test_cli_history_yesterday(temp_config_dir: Path):
         id="meal-2",
         foodDisplayName="Oats",
         mealType=MealType.BREAKFAST,
-        interval=TimeInterval(startTime="2026-08-17T08:30:00Z", endTime="2026-08-17T08:30:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-17T08:30:00Z", endTime="2026-08-17T08:30:00Z"
+        ),
         energy=Energy(kcal=350),
-        nutrients=[NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=20))],
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=20))
+        ],
     )
 
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]
+    ):
         result = runner.invoke(app, ["history", "--date", "yesterday"])
         assert result.exit_code == 0
         assert "Meal History (Yesterday)" in result.stdout
@@ -131,12 +148,18 @@ def test_cli_history_days(temp_config_dir: Path):
         id="meal-3",
         foodDisplayName="Tofu",
         mealType=MealType.DINNER,
-        interval=TimeInterval(startTime="2026-08-16T19:00:00Z", endTime="2026-08-16T19:00:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-16T19:00:00Z", endTime="2026-08-16T19:00:00Z"
+        ),
         energy=Energy(kcal=400),
-        nutrients=[NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=30))],
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=30))
+        ],
     )
 
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]
+    ):
         result = runner.invoke(app, ["history", "--days", "7"])
         assert result.exit_code == 0
         assert "Meal History (Past 7 Days)" in result.stdout
@@ -148,12 +171,18 @@ def test_cli_history_json(temp_config_dir: Path):
         id="dp-999",
         foodDisplayName="Protein Shake",
         mealType=MealType.SNACK,
-        interval=TimeInterval(startTime="2026-08-18T15:00:00Z", endTime="2026-08-18T15:00:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-18T15:00:00Z", endTime="2026-08-18T15:00:00Z"
+        ),
         energy=Energy(kcal=200),
-        nutrients=[NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=30))],
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=30))
+        ],
     )
 
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals", return_value=[sample_meal]
+    ):
         result = runner.invoke(app, ["history", "--json"])
         assert result.exit_code == 0
         parsed = json.loads(result.stdout)
@@ -166,7 +195,9 @@ def test_cli_history_json(temp_config_dir: Path):
 
 
 def test_cli_delete_command(temp_config_dir: Path):
-    with patch("nutrilog.cli.GoogleHealthClient.delete_meal", return_value=True) as mock_del:
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.delete_meal", return_value=True
+    ) as mock_del:
         result = runner.invoke(app, ["delete", "dp-999", "--yes"])
         assert result.exit_code == 0
         assert "Successfully deleted meal" in result.stdout
@@ -180,7 +211,6 @@ def test_cli_delete_cancelled(temp_config_dir: Path):
         assert result.exit_code == 0
         assert "cancelled" in result.stdout
         mock_del.assert_not_called()
-
 
 
 def test_cli_auth_status_and_logout(temp_config_dir: Path):
@@ -202,7 +232,9 @@ def test_cli_auth_login_remote(temp_config_dir: Path):
 
 
 def test_cli_config_commands(temp_config_dir: Path):
-    result = runner.invoke(app, ["config", "set", "--timezone", "Australia/Sydney"])
+    result = runner.invoke(
+        app, ["config", "set", "--timezone", "Australia/Sydney"]
+    )
     assert result.exit_code == 0
     stdout_clean = " ".join(result.stdout.split())
     assert "Timezone set to 'Australia/Sydney'" in stdout_clean
@@ -215,10 +247,14 @@ def test_cli_config_commands(temp_config_dir: Path):
     # Test reset to auto
     result_reset = runner.invoke(app, ["config", "set", "--timezone", "auto"])
     assert result_reset.exit_code == 0
-    assert "reset to machine system local" in " ".join(result_reset.stdout.split())
+    assert "reset to machine system local" in " ".join(
+        result_reset.stdout.split()
+    )
 
     # Test invalid timezone error
-    result_invalid = runner.invoke(app, ["config", "set", "--timezone", "Not/A/Valid/Timezone"])
+    result_invalid = runner.invoke(
+        app, ["config", "set", "--timezone", "Not/A/Valid/Timezone"]
+    )
     assert result_invalid.exit_code == 1
     assert "Invalid timezone" in result_invalid.output
 
@@ -228,35 +264,61 @@ def _fiber_meal(point_id: str) -> MealLog:
         id=point_id,
         foodDisplayName="Test",
         mealType=MealType.LUNCH,
-        interval=TimeInterval(startTime="2026-08-18T12:00:00Z", endTime="2026-08-18T12:01:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-18T12:00:00Z", endTime="2026-08-18T12:01:00Z"
+        ),
         energy=Energy(kcal=236),
         totalCarbohydrate=GramsQuantity(grams=7.7),
         totalFat=GramsQuantity(grams=8.3),
         nutrients=[
             NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=20)),
-            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=1.9)),
+            NutrientEntry(
+                nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=1.9)
+            ),
         ],
     )
 
 
 def test_cli_log_fiber_uses_dietary_fiber_enum(temp_config_dir: Path):
-    """Everyday "fiber" must serialize to the only fibre value the v4 API accepts."""
-    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+    """Everyday "fiber" must become the only fibre value v4 accepts."""
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m
+    ) as mock_log:
         result = runner.invoke(
             app,
-            ["log", "Test", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3", "-n", "fiber=1.9g"],
+            [
+                "log",
+                "Test",
+                "-p",
+                "20",
+                "-k",
+                "236",
+                "-c",
+                "7.7",
+                "-f",
+                "8.3",
+                "-n",
+                "fiber=1.9g",
+            ],
         )
     assert result.exit_code == 0, result.output
-    sent = mock_log.call_args.args[0].to_api_payload()["nutritionLog"]["nutrients"]
+    sent = mock_log.call_args.args[0].to_api_payload()["nutritionLog"][
+        "nutrients"
+    ]
     assert {
         "nutrient": "DIETARY_FIBER",
         "quantity": {"grams": 1.9, "userProvidedUnit": "GRAM"},
     } in sent
 
 
-def test_cli_history_totals_show_nutrients_beyond_the_macros(temp_config_dir: Path):
-    """The table keeps four macro columns; the tail is summarised underneath it."""
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[_fiber_meal("meal-fib")]):
+def test_cli_history_totals_show_nutrients_beyond_the_macros(
+    temp_config_dir: Path,
+):
+    """The table keeps 4 macro columns; tail is summarised underneath."""
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals",
+        return_value=[_fiber_meal("meal-fib")],
+    ):
         result = runner.invoke(app, ["history"])
         assert result.exit_code == 0
         assert "Fiber" in result.stdout
@@ -264,7 +326,10 @@ def test_cli_history_totals_show_nutrients_beyond_the_macros(temp_config_dir: Pa
 
 
 def test_cli_history_json_includes_fiber(temp_config_dir: Path):
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[_fiber_meal("meal-fib")]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals",
+        return_value=[_fiber_meal("meal-fib")],
+    ):
         result = runner.invoke(app, ["history", "--json"])
         assert result.exit_code == 0
         parsed = json.loads(result.stdout)
@@ -274,20 +339,43 @@ def test_cli_history_json_includes_fiber(temp_config_dir: Path):
 
 def _sent_nutrients(mock_log) -> list[dict]:
     """Nutrients as serialized for the API by the last log_meal call."""
-    return mock_log.call_args.args[0].to_api_payload()["nutritionLog"]["nutrients"]
+    return mock_log.call_args.args[0].to_api_payload()["nutritionLog"][
+        "nutrients"
+    ]
 
 
 def test_cli_log_several_nutrients_via_flags(temp_config_dir: Path):
     """One repeatable flag covers what four dedicated ones used to."""
-    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m
+    ) as mock_log:
         result = runner.invoke(
             app,
-            ["log", "Musashi bar", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3",
-             "-n", "fiber=1.9g", "-n", "sugar=3.7g", "-n", "saturated fat=4.4g",
-             "-n", "sodium=242mg"],
+            [
+                "log",
+                "Musashi bar",
+                "-p",
+                "20",
+                "-k",
+                "236",
+                "-c",
+                "7.7",
+                "-f",
+                "8.3",
+                "-n",
+                "fiber=1.9g",
+                "-n",
+                "sugar=3.7g",
+                "-n",
+                "saturated fat=4.4g",
+                "-n",
+                "sodium=242mg",
+            ],
         )
     assert result.exit_code == 0, result.output
-    sent = {e["nutrient"]: e["quantity"]["grams"] for e in _sent_nutrients(mock_log)}
+    sent = {
+        e["nutrient"]: e["quantity"]["grams"] for e in _sent_nutrients(mock_log)
+    }
     assert sent["SUGAR"] == 3.7
     assert sent["SATURATED_FAT"] == 4.4
     # Sodium is written in milligrams; the API field is grams.
@@ -296,10 +384,16 @@ def test_cli_log_several_nutrients_via_flags(temp_config_dir: Path):
 
 def test_cli_log_shorthand_nutrients_are_not_dropped(temp_config_dir: Path):
     """Regression: the CLI path used to discard shorthand-parsed nutrients."""
-    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
-        result = runner.invoke(app, ["log", "20p 236k sugar: 3.7g sodium: 242mg Test bar"])
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m
+    ) as mock_log:
+        result = runner.invoke(
+            app, ["log", "20p 236k sugar: 3.7g sodium: 242mg Test bar"]
+        )
     assert result.exit_code == 0, result.output
-    sent = {e["nutrient"]: e["quantity"]["grams"] for e in _sent_nutrients(mock_log)}
+    sent = {
+        e["nutrient"]: e["quantity"]["grams"] for e in _sent_nutrients(mock_log)
+    }
     assert sent["SUGAR"] == 3.7
     assert sent["SODIUM"] == 0.242
 
@@ -309,19 +403,29 @@ def test_cli_history_json_includes_new_nutrients(temp_config_dir: Path):
     meal = MealLog(
         foodDisplayName="Musashi bar",
         mealType=MealType.SNACK,
-        interval=TimeInterval.from_datetimes(__import__("datetime").datetime.now().astimezone()),
+        interval=TimeInterval.from_datetimes(
+            __import__("datetime").datetime.now().astimezone()
+        ),
         energy=Energy(kcal=236),
         totalCarbohydrate=GramsQuantity(grams=7.7),
         totalFat=GramsQuantity(grams=8.3),
         nutrients=[
             NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=20)),
-            NutrientEntry(nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=1.9)),
+            NutrientEntry(
+                nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=1.9)
+            ),
             NutrientEntry(nutrient="SUGAR", quantity=GramsQuantity(grams=3.7)),
-            NutrientEntry(nutrient="SATURATED_FAT", quantity=GramsQuantity(grams=4.4)),
-            NutrientEntry(nutrient="SODIUM", quantity=GramsQuantity(grams=0.242)),
+            NutrientEntry(
+                nutrient="SATURATED_FAT", quantity=GramsQuantity(grams=4.4)
+            ),
+            NutrientEntry(
+                nutrient="SODIUM", quantity=GramsQuantity(grams=0.242)
+            ),
         ],
     )
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[meal]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals", return_value=[meal]
+    ):
         result = runner.invoke(app, ["history", "--json"])
     assert result.exit_code == 0, result.output
     entry = json.loads(result.stdout)["meals"][0]
@@ -335,8 +439,12 @@ def test_cli_history_json_includes_new_nutrients(temp_config_dir: Path):
 
 def test_cli_log_arbitrary_nutrient_flag(temp_config_dir: Path):
     """Caffeine is loggable without a dedicated flag."""
-    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
-        result = runner.invoke(app, ["log", "Oat Cortado", "-n", "caffeine=95mg"])
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m
+    ) as mock_log:
+        result = runner.invoke(
+            app, ["log", "Oat Cortado", "-n", "caffeine=95mg"]
+        )
 
     assert result.exit_code == 0, result.output
     assert {
@@ -346,10 +454,19 @@ def test_cli_log_arbitrary_nutrient_flag(temp_config_dir: Path):
 
 
 def test_cli_nutrient_flag_is_repeatable(temp_config_dir: Path):
-    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m
+    ) as mock_log:
         result = runner.invoke(
             app,
-            ["log", "Supplement", "-n", "magnesium=60mg", "-n", "vitamin b12=2.4µg"],
+            [
+                "log",
+                "Supplement",
+                "-n",
+                "magnesium=60mg",
+                "-n",
+                "vitamin b12=2.4µg",
+            ],
         )
 
     assert result.exit_code == 0, result.output
@@ -394,7 +511,9 @@ def test_cli_log_reports_shorthand_unit_errors(temp_config_dir: Path):
 
 
 def test_cli_log_warns_about_unclaimed_weights(temp_config_dir: Path):
-    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m
+    ):
         result = runner.invoke(app, ["log", "Eggs 450mg"])
 
     assert result.exit_code == 0, result.output
@@ -403,7 +522,8 @@ def test_cli_log_warns_about_unclaimed_weights(temp_config_dir: Path):
 
 def test_cli_json_output_lists_nutrients_generically(temp_config_dir: Path):
     result = runner.invoke(
-        app, ["log", "Oat Cortado", "-n", "caffeine=95mg", "--dry-run", "--json"]
+        app,
+        ["log", "Oat Cortado", "-n", "caffeine=95mg", "--dry-run", "--json"],
     )
 
     assert result.exit_code == 0, result.output
@@ -415,13 +535,19 @@ def test_cli_history_json_totals_nutrients_generically(temp_config_dir: Path):
     meal = MealLog(
         foodDisplayName="Oat Cortado",
         mealType=MealType.BREAKFAST,
-        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"
+        ),
         energy=Energy(kcal=35),
         nutrients=[
-            NutrientEntry(nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)),
+            NutrientEntry(
+                nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)
+            ),
         ],
     )
-    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[meal]):
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals", return_value=[meal]
+    ):
         result = runner.invoke(app, ["history", "--json"])
 
     assert result.exit_code == 0, result.output
@@ -431,7 +557,7 @@ def test_cli_history_json_totals_nutrients_generically(temp_config_dir: Path):
 
 
 def test_cli_nutrients_command_lists_loggable_names(temp_config_dir: Path):
-    """With names replacing flags, the list has to be discoverable from the CLI."""
+    """With names replacing flags, the list must be discoverable."""
     result = runner.invoke(app, ["nutrients"])
 
     assert result.exit_code == 0, result.output

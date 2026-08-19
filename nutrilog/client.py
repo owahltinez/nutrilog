@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime, time, timezone
 from typing import Any, List, Optional
-from google.oauth2.credentials import Credentials
+
 import httpx
+from google.oauth2.credentials import Credentials
 
 from nutrilog.auth import get_credentials
 from nutrilog.models import MealLog
+from nutrilog.storage import get_user_timezone
 
 API_BASE_URL = "https://health.googleapis.com/v4"
 NUTRITION_DATA_TYPE = "nutrition-log"
-# Maximum accepted by users.dataTypes.dataPoints.list; larger values are truncated.
+# Max accepted by users.dataTypes.dataPoints.list; larger values are truncated.
 MAX_PAGE_SIZE = 10000
 
 
@@ -39,8 +41,8 @@ def _meal_in_range(
 ) -> bool:
     """Whether a meal starts within the requested window.
 
-    A meal whose timestamp cannot be parsed is excluded rather than included: a
-    point we cannot place in time does not belong in a date-filtered result.
+    A meal whose timestamp cannot be parsed is excluded rather than included:
+    a point we cannot place in time does not belong in date-filtered results.
     """
     try:
         meal_start = meal.interval.start_datetime
@@ -64,6 +66,7 @@ class GoogleHealthClient:
         base_url: str = API_BASE_URL,
         timeout: float = 15.0,
     ):
+        """Initialize GoogleHealthClient."""
         self.credentials = credentials
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -73,7 +76,8 @@ class GoogleHealthClient:
         creds = self.credentials or get_credentials()
         if not creds or not creds.token:
             raise AuthenticationError(
-                "Not authenticated. Please run 'nutrilog auth login' or configure credentials."
+                "Not authenticated. Please run 'nutrilog auth login' or "
+                "configure credentials."
             )
         return {
             "Authorization": f"Bearer {creds.token}",
@@ -85,7 +89,8 @@ class GoogleHealthClient:
         """Raise appropriate exceptions based on HTTP status code."""
         if response.status_code == 401:
             raise AuthenticationError(
-                "OAuth token is invalid or expired. Please run 'nutrilog auth login'."
+                "OAuth token is invalid or expired. Please run 'nutrilog auth "
+                "login'."
             )
         elif response.status_code == 403:
             try:
@@ -94,27 +99,40 @@ class GoogleHealthClient:
                 for d in error_data.get("details", []):
                     if d.get("reason") == "DATA_POINT_NOT_OWNED_BY_CLIENT":
                         raise APIPermissionError(
-                            "Cannot delete meal: this data point was created by another client "
-                            "(e.g. Fitbit app) and can only be deleted from the originating application."
+                            "Cannot delete meal: this data point was created "
+                            "by another client (e.g. Fitbit app) and can only "
+                            "be deleted from the originating application."
                         )
             except (KeyError, ValueError, TypeError):
                 err_msg = response.text
             raise APIPermissionError(
                 f"Google Health API permission denied: {err_msg}. "
-                "Ensure the Google Health API is enabled in your Google Cloud Console."
+                "Ensure the Google Health API is enabled in your Google "
+                "Cloud Console."
             )
         elif response.status_code == 404:
-            raise ResourceNotFoundError(f"Requested resource not found: {response.text}")
+            raise ResourceNotFoundError(
+                f"Requested resource not found: {response.text}"
+            )
         elif response.status_code >= 400:
             try:
-                err_msg = response.json().get("error", {}).get("message", response.text)
+                err_msg = (
+                    response.json()
+                    .get("error", {})
+                    .get("message", response.text)
+                )
             except Exception:
                 err_msg = response.text
-            raise GoogleHealthError(f"Google Health API error ({response.status_code}): {err_msg}")
+            raise GoogleHealthError(
+                f"Google Health API error ({response.status_code}): {err_msg}"
+            )
 
     def log_meal(self, meal: MealLog) -> MealLog:
         """Create a new nutritionLog dataPoint in Google Health API."""
-        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints"
+        url = (
+            f"{self.base_url}/users/me/dataTypes/"
+            f"{NUTRITION_DATA_TYPE}/dataPoints"
+        )
         payload = meal.to_api_payload()
 
         try:
@@ -126,7 +144,10 @@ class GoogleHealthClient:
                 data = response.json()
                 return MealLog.from_api_payload(data)
         except httpx.RequestError as exc:
-            raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
+            raise GoogleHealthError(
+                f"Network error while communicating with Google Health API: "
+                f"{exc}"
+            ) from exc
 
     def list_meals(
         self,
@@ -139,13 +160,14 @@ class GoogleHealthClient:
         Requests the largest page the API allows. The server's `nextPageToken`
         resumes at the next *distinct* interval start time, so a page boundary
         landing inside a group of same-timestamped points skips the rest of that
-        group. Asking for one large page avoids the boundary entirely; do not
-        lower this without a different pagination strategy.
+        group. Asking for one large page avoids the boundary entirely; do
+        not lower this without a different pagination strategy.
         """
-        from nutrilog.storage import get_user_timezone
-
         active_tz = get_user_timezone()
-        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints"
+        url = (
+            f"{self.base_url}/users/me/dataTypes/"
+            f"{NUTRITION_DATA_TYPE}/dataPoints"
+        )
         params: dict[str, Any] = {"pageSize": page_size}
 
         if start_time and start_time.tzinfo is None:
@@ -158,13 +180,14 @@ class GoogleHealthClient:
                 headers = self._get_headers()
                 meals = []
                 page_token: Optional[str] = None
-                # The API pages results, so one request only sees the newest page_size
-                # points; without following the token, older meals are silently missing.
+                # Follow token across pages to avoid missing older meals.
                 while True:
                     page_params = dict(params)
                     if page_token:
                         page_params["pageToken"] = page_token
-                    response = client.get(url, params=page_params, headers=headers)
+                    response = client.get(
+                        url, params=page_params, headers=headers
+                    )
                     if response.is_error:
                         self._handle_response_error(response)
 
@@ -178,25 +201,36 @@ class GoogleHealthClient:
                     if not page_token:
                         return meals
         except httpx.RequestError as exc:
-            raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
+            raise GoogleHealthError(
+                f"Network error while communicating with Google Health API: "
+                f"{exc}"
+            ) from exc
 
     def get_today_meals(self, tz: Optional[Any] = None) -> List[MealLog]:
-        """Retrieve all meals logged today in the specified or active user timezone."""
-        from nutrilog.storage import get_user_timezone
-
+        """Retrieve all meals logged today in specified or active timezone."""
         active_tz = tz or get_user_timezone()
         now_local = datetime.now(active_tz)
-        start_of_day = datetime.combine(now_local.date(), time.min, tzinfo=active_tz)
-        end_of_day = datetime.combine(now_local.date(), time.max, tzinfo=active_tz)
+        start_of_day = datetime.combine(
+            now_local.date(), time.min, tzinfo=active_tz
+        )
+        end_of_day = datetime.combine(
+            now_local.date(), time.max, tzinfo=active_tz
+        )
         return self.list_meals(start_time=start_of_day, end_time=end_of_day)
 
     def delete_meal(self, data_point_id: str) -> bool:
         """Delete a nutritionLog data point by ID or full resource name."""
-        url = f"{self.base_url}/users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints:batchDelete"
+        url = (
+            f"{self.base_url}/users/me/dataTypes/"
+            f"{NUTRITION_DATA_TYPE}/dataPoints:batchDelete"
+        )
         if "/" in data_point_id:
             name = data_point_id
         else:
-            name = f"users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints/{data_point_id}"
+            name = (
+                f"users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints/"
+                f"{data_point_id}"
+            )
 
         payload = {"names": [name]}
         try:
@@ -207,4 +241,7 @@ class GoogleHealthClient:
                     self._handle_response_error(response)
                 return response.status_code in (200, 204)
         except httpx.RequestError as exc:
-            raise GoogleHealthError(f"Network error while communicating with Google Health API: {exc}") from exc
+            raise GoogleHealthError(
+                f"Network error while communicating with Google Health API: "
+                f"{exc}"
+            ) from exc

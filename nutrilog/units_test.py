@@ -1,7 +1,13 @@
 """Unit tests for nutrilog.units."""
 
 import pytest
-from nutrilog.units import WeightUnit, UnknownUnitError, parse_weight, format_grams
+
+from nutrilog.units import (
+    UnknownUnitError,
+    WeightUnit,
+    format_grams,
+    parse_weight,
+)
 
 
 def test_parses_gram_units():
@@ -15,7 +21,7 @@ def test_parses_milligram_units():
 
 
 def test_parses_microgram_units_including_ascii_spellings():
-    """Labels write micrograms as µg, ug or mcg; all three mean the same thing."""
+    """Micrograms written as µg, ug, or mcg all mean the same thing."""
     for spelling in ("µg", "ug", "mcg", "micrograms"):
         grams, unit = parse_weight(2.4, spelling)
         assert unit == WeightUnit.MICROGRAM
@@ -27,7 +33,7 @@ def test_unit_matching_ignores_case_and_surrounding_space():
 
 
 def test_missing_unit_is_rejected():
-    """Guessing a unit risks a 1000x error, so an absent unit is the caller's problem."""
+    """Missing unit is rejected because guessing risks a 1000x error."""
     with pytest.raises(UnknownUnitError):
         parse_weight(450, None)
     with pytest.raises(UnknownUnitError):
@@ -47,7 +53,7 @@ def test_format_grams_uses_the_unit_the_value_was_given_in():
 
 
 def test_format_grams_scales_to_a_readable_unit_when_none_was_recorded():
-    """Points written by other apps carry grams only, and totals mix units across meals."""
+    """Points without recorded units scale to a readable unit."""
     assert format_grams(0.061, None) == "61mg"
     assert format_grams(0.0000024, None) == "2.4µg"
     assert format_grams(12.5, None) == "12.5g"
