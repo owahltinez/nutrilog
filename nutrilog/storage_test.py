@@ -2,6 +2,8 @@
 
 import os
 import stat
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 import pytest
 
@@ -9,8 +11,10 @@ from nutrilog.storage import (
     ENV_CONFIG_DIR,
     delete_tokens,
     get_config_dir,
+    get_machine_timezone,
     load_config,
     load_tokens,
+    resolve_timezone,
     save_config,
     save_tokens,
 )
@@ -94,3 +98,76 @@ def test_timezone_storage_and_resolution(temp_config_dir: Path):
     # Invalid timezone raises ValueError
     with pytest.raises(ValueError, match="Unknown or invalid timezone"):
         resolve_timezone("Invalid/NonExistentZone")
+
+
+@pytest.fixture
+def system_timezone(monkeypatch: pytest.MonkeyPatch):
+    """Set the process timezone the way the OS would, restoring it afterwards."""
+
+    def _set(name: str):
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+
+    yield _set
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_machine_timezone_tracks_dst(system_timezone):
+    """A fixed-offset snapshot goes an hour wrong the moment the zone changes offset.
+
+    Sydney is UTC+10 in August and UTC+11 in December; a machine timezone captured once
+    would report +10 for both and misplace every summer meal.
+    """
+    system_timezone("Australia/Sydney")
+    machine_tz = get_machine_timezone()
+
+    winter = datetime(2026, 8, 19, 12, 0, tzinfo=machine_tz).utcoffset()
+    summer = datetime(2026, 12, 19, 12, 0, tzinfo=machine_tz).utcoffset()
+
+    assert winter == timedelta(hours=10)
+    assert summer == timedelta(hours=11)
+
+
+def test_machine_timezone_handles_northern_hemisphere_dst(system_timezone):
+    system_timezone("America/New_York")
+    machine_tz = get_machine_timezone()
+
+    assert datetime(2026, 1, 15, 12, 0, tzinfo=machine_tz).utcoffset() == timedelta(hours=-5)
+    assert datetime(2026, 7, 15, 12, 0, tzinfo=machine_tz).utcoffset() == timedelta(hours=-4)
+
+
+def test_resolve_timezone_auto_tracks_dst(system_timezone):
+    """'auto' must inherit the same DST awareness, not just the raw default."""
+    system_timezone("Australia/Sydney")
+
+    resolved = resolve_timezone("auto")
+
+    assert datetime(2026, 12, 19, 12, 0, tzinfo=resolved).utcoffset() == timedelta(hours=11)
+
+
+def test_logged_meal_offset_follows_dst(system_timezone):
+    """The end-to-end consequence: a summer meal must be stamped +11, not +10."""
+    from nutrilog.models import TimeInterval
+
+    system_timezone("Australia/Sydney")
+    summer_meal = datetime(2026, 12, 19, 9, 30, tzinfo=get_machine_timezone())
+
+    interval = TimeInterval.from_datetimes(summer_meal)
+
+    assert interval.startUtcOffset == "39600s"
+
+
+def test_machine_timezone_is_named_not_anonymous(system_timezone):
+    """`config show` prints this: "Australia/Sydney" is useful, "tzlocal()" is not."""
+    system_timezone("Australia/Sydney")
+
+    assert str(get_machine_timezone()) == "Australia/Sydney"
+
+
+def test_machine_timezone_falls_back_when_zone_is_unnameable(system_timezone):
+    """A TZ set to a bare offset names no IANA zone, but must still resolve."""
+    system_timezone("UTC+5")
+    machine_tz = get_machine_timezone()
+
+    assert datetime(2026, 8, 19, 12, 0, tzinfo=machine_tz).utcoffset() is not None

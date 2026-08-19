@@ -6,7 +6,7 @@ import json
 import os
 import re
 import zoneinfo
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any, Optional, Union
 from dateutil import tz
@@ -36,9 +36,49 @@ COMMON_TZ_ALIASES = {
 }
 
 
+# Where the OS records which IANA zone it is set to.
+_LOCALTIME_LINK = Path("/etc/localtime")
+_ZONEINFO_MARKER = "zoneinfo/"
+
+
+def get_machine_timezone_name() -> Optional[str]:
+    """The system's IANA zone name (e.g. "Australia/Sydney"), if one can be determined."""
+    env_tz = os.getenv("TZ")
+    if env_tz:
+        try:
+            zoneinfo.ZoneInfo(env_tz)
+            return env_tz
+        except Exception:
+            pass  # TZ can hold a bare offset, which names no zone.
+
+    # The symlink target ends with the zone name, e.g. /var/db/timezone/zoneinfo/Australia/Sydney
+    try:
+        if _LOCALTIME_LINK.is_symlink():
+            target = str(_LOCALTIME_LINK.resolve())
+            _, marker, name = target.partition(_ZONEINFO_MARKER)
+            if marker and name:
+                zoneinfo.ZoneInfo(name)
+                return name
+    except Exception:
+        pass
+    return None
+
+
 def get_machine_timezone() -> tzinfo:
-    """Return the user's machine/system local timezone."""
-    return datetime.now().astimezone().tzinfo or timezone.utc
+    """Return the user's machine/system local timezone.
+
+    Deliberately not `datetime.now().astimezone().tzinfo`: that captures today's offset as a
+    fixed value, so a zone with daylight saving keeps reporting the offset in force when the
+    process started. Sydney would stamp December meals +10 instead of +11, putting them an hour
+    out and pushing late-evening ones onto the wrong civil day.
+
+    A named zone is preferred over `tzlocal` because both resolve the offset per datetime, but
+    only the named one reports which zone it is when displayed.
+    """
+    name = get_machine_timezone_name()
+    if name:
+        return zoneinfo.ZoneInfo(name)
+    return tz.tzlocal()
 
 
 def resolve_timezone(tz_input: Union[str, tzinfo, None]) -> tzinfo:
