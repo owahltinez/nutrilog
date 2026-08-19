@@ -76,9 +76,21 @@ class NutrientEntry(BaseModel):
     quantity: GramsQuantity
 
 
+def _utc_offset_seconds(dt: datetime) -> Optional[str]:
+    """The datetime's UTC offset as an API Duration string, or None if naive."""
+    offset = dt.utcoffset()
+    if offset is None:
+        return None
+    return f"{int(offset.total_seconds())}s"
+
+
 class TimeInterval(BaseModel):
     startTime: str
     endTime: str
+    # The API ignores the offset inside startTime and stores 0s unless these are sent, which
+    # makes the Health app file a meal on the UTC day instead of the local one.
+    startUtcOffset: Optional[str] = None
+    endUtcOffset: Optional[str] = None
 
     @property
     def start_datetime(self) -> datetime:
@@ -111,6 +123,8 @@ class TimeInterval(BaseModel):
         return cls(
             startTime=start.isoformat().replace("+00:00", "Z"),
             endTime=end.isoformat().replace("+00:00", "Z"),
+            startUtcOffset=_utc_offset_seconds(start),
+            endUtcOffset=_utc_offset_seconds(end),
         )
 
 
@@ -190,14 +204,22 @@ class MealLog(BaseModel):
                 }
             )
 
+        interval_payload: dict[str, Any] = {
+            "startTime": self.interval.startTime,
+            "endTime": self.interval.endTime,
+        }
+
+        # Omitted rather than defaulted: a naive interval has no offset to claim.
+        if self.interval.startUtcOffset is not None:
+            interval_payload["startUtcOffset"] = self.interval.startUtcOffset
+        if self.interval.endUtcOffset is not None:
+            interval_payload["endUtcOffset"] = self.interval.endUtcOffset
+
         payload: dict[str, Any] = {
             "nutritionLog": {
                 "foodDisplayName": self.foodDisplayName,
                 "mealType": self.mealType.value,
-                "interval": {
-                    "startTime": self.interval.startTime,
-                    "endTime": self.interval.endTime,
-                },
+                "interval": interval_payload,
                 "energy": {"kcal": round(self.energy.kcal, 1)},
                 "totalCarbohydrate": {"grams": round(self.carbs_g, 2)},
                 "totalFat": {"grams": round(self.fat_g, 2)},
@@ -263,7 +285,12 @@ class MealLog(BaseModel):
             id=point_id or data.get("id") or data.get("dataPointId"),
             foodDisplayName=log_data.get("foodDisplayName", "Meal"),
             mealType=meal_type,
-            interval=TimeInterval(startTime=start_time, endTime=end_time),
+            interval=TimeInterval(
+                startTime=start_time,
+                endTime=end_time,
+                startUtcOffset=interval_data.get("startUtcOffset"),
+                endUtcOffset=interval_data.get("endUtcOffset"),
+            ),
             energy=Energy(kcal=kcal),
             totalCarbohydrate=GramsQuantity(grams=carbs_g),
             totalFat=GramsQuantity(grams=fat_g),

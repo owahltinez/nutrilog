@@ -1,6 +1,6 @@
 """Unit tests for nutrilog.models."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pytest
 from nutrilog.models import (
     Energy,
@@ -260,3 +260,70 @@ def test_to_api_payload_does_not_duplicate_lowercase_protein():
     )
     sent = meal.to_api_payload()["nutritionLog"]["nutrients"]
     assert len([n for n in sent if n["nutrient"].upper() == "PROTEIN"]) == 1
+
+
+def test_from_datetimes_records_utc_offset():
+    """The API ignores the RFC3339 offset, so it must travel as an explicit field."""
+    dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
+
+    interval = TimeInterval.from_datetimes(dt)
+
+    assert interval.startUtcOffset == "36000s"
+    assert interval.endUtcOffset == "36000s"
+
+
+def test_from_datetimes_records_negative_utc_offset():
+    dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=-7)))
+
+    interval = TimeInterval.from_datetimes(dt)
+
+    assert interval.startUtcOffset == "-25200s"
+
+
+def test_from_datetimes_offsets_are_computed_per_endpoint():
+    """An interval spanning a DST change has two different offsets."""
+    start = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
+    # 11:00 at +11:00 is 00:00Z, half an hour after the 23:30Z start.
+    end = datetime(2026, 8, 19, 11, 0, 0, tzinfo=timezone(timedelta(hours=11)))
+
+    interval = TimeInterval.from_datetimes(start, end)
+
+    assert interval.startUtcOffset == "36000s"
+    assert interval.endUtcOffset == "39600s"
+
+
+def test_payload_sends_utc_offsets():
+    """Without these the API stores 0s and the app shows the meal on the wrong day."""
+    dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
+    meal = MealLog(foodDisplayName="Oat Cortado", interval=TimeInterval.from_datetimes(dt))
+
+    interval = meal.to_api_payload()["nutritionLog"]["interval"]
+
+    assert interval["startUtcOffset"] == "36000s"
+    assert interval["endUtcOffset"] == "36000s"
+
+
+def test_payload_omits_utc_offsets_when_unknown():
+    """A naive interval must not claim a +00:00 offset it does not have."""
+    meal = MealLog(
+        foodDisplayName="Oat Cortado",
+        interval=TimeInterval(
+            startTime="2026-08-19T09:30:00Z",
+            endTime="2026-08-19T09:31:00Z",
+        ),
+    )
+
+    interval = meal.to_api_payload()["nutritionLog"]["interval"]
+
+    assert "startUtcOffset" not in interval
+    assert "endUtcOffset" not in interval
+
+
+def test_from_api_payload_round_trips_utc_offsets():
+    dt = datetime(2026, 8, 19, 9, 30, 0, tzinfo=timezone(timedelta(hours=10)))
+    meal = MealLog(foodDisplayName="Oat Cortado", interval=TimeInterval.from_datetimes(dt))
+
+    parsed = MealLog.from_api_payload(meal.to_api_payload())
+
+    assert parsed.interval.startUtcOffset == "36000s"
+    assert parsed.interval.endUtcOffset == "36000s"
