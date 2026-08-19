@@ -203,6 +203,13 @@ class ParsedMacros:
         )
 
 
+def _inside_parentheses(text: str, index: int) -> bool:
+    """Whether index falls between an unclosed "(" and its ")"."""
+    return "(" in text[:index] and text[:index].rfind("(") > text[:index].rfind(
+        ")"
+    )
+
+
 def _quantity(
     nutrient_name: str, value: str, unit: Optional[str]
 ) -> GramsQuantity:
@@ -283,15 +290,19 @@ def parse_shorthand(
         lambda m: take_macro(m.group(1), m.group(2)), working_text
     )
 
-    # A leftover weight means a nutrient name was missing or misspelt.
+    # A leftover weight may be a nutrient whose name was missing or misspelt, so
+    # it is flagged -- but left in place, since it is more often a serving size
+    # and deleting it would corrupt the food name. Parenthesised ones are not
+    # worth mentioning at all: "(35g)" is simply how serving sizes are written.
     warnings = [
-        f"Ignored {m.group(1)!r}: no nutrient named alongside it."
+        f"{m.group(1)!r} was read as part of the food name, not a nutrient."
         for m in _LEFTOVER_WEIGHT.finditer(working_text)
+        if not _inside_parentheses(working_text, m.start())
     ]
-    working_text = _LEFTOVER_WEIGHT.sub(" ", working_text)
 
-    # Clean up remaining food name text
-    cleaned_name = re.sub(r"[,;:\-_|]+", " ", working_text)
+    # Only punctuation orphaned by a consumed token is dropped: one preceded
+    # by a word character belongs to the name, as in "(Berry Ripe, 35g)".
+    cleaned_name = re.sub(r"(?:(?<=\s)|^)[,;:\-_|]+", " ", working_text)
     cleaned_name = re.sub(r"\s+", " ", cleaned_name).strip()
 
     return ParsedMacros(

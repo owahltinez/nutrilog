@@ -274,3 +274,35 @@ def test_parsed_nutrients_reach_the_meal_log():
 
     assert meal.nutrient_grams(NutrientType.CAFFEINE) == pytest.approx(0.095)
     assert meal.nutrient_grams(NutrientType.PROTEIN) == pytest.approx(0.8)
+
+
+def test_unclaimed_weight_stays_in_the_food_name():
+    """A stray weight is never deleted.
+
+    "(Berry Ripe, 35g)" is a serving size in the name, not a nutrient the user
+    forgot to label. Whether it also warns is covered separately below.
+    """
+    result = parse_shorthand("Snack Proud Protein Bar (Berry Ripe, 35g)")
+
+    assert result.name == "Snack Proud Protein Bar (Berry Ripe, 35g)"
+
+
+def test_weight_in_a_name_does_not_become_a_nutrient():
+    result = parse_shorthand("Chickpeas (100g)")
+
+    assert result.name == "Chickpeas (100g)"
+    assert result.nutrients == {}
+
+
+def test_serving_size_in_parentheses_does_not_warn():
+    """A parenthesised weight is a serving size; warning each time is noise."""
+    for text in ("Chickpeas (100g)", "Protein Bar (Berry Ripe, 35g)"):
+        result = parse_shorthand(text)
+        assert result.name == text, text
+        assert result.warnings == [], text
+
+
+def test_unlabelled_weight_outside_parentheses_still_warns():
+    result = parse_shorthand("Eggs 450mg")
+
+    assert any("450mg" in w for w in result.warnings)
