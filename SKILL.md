@@ -81,7 +81,27 @@ nutrilog history --days 7 --json
 
 ---
 
-## 3. Discovering Loggable Nutrients
+## 3. Copying a Prior Meal
+
+Use the Data Point ID shown by `nutrilog history`. This creates a new point at
+the current time and leaves the source unchanged. It preserves calories,
+macros, every additional nutrient, and serving metadata.
+
+```bash
+# Copy now with the original name and meal type
+nutrilog copy <POINT_ID>
+
+# Choose the time or override descriptive fields
+nutrilog copy <POINT_ID> --time 7pm
+nutrilog copy <POINT_ID> --name "Pasta Lunch" --meal lunch
+
+# Inspect the copy without creating it
+nutrilog copy <POINT_ID> --dry-run --json
+```
+
+---
+
+## 4. Discovering Loggable Nutrients
 
 Only protein, fat, carbs and calories have shorthand letters. To see every
 other nutrient the API accepts, and how to write it:
@@ -97,7 +117,7 @@ equating them would record the wrong value.
 
 ---
 
-## 4. Deleting Mistakes or Duplicate Meals
+## 5. Deleting Mistakes or Duplicate Meals
 
 To delete a logged meal, use its Data Point ID (visible directly in `nutrilog history`):
 
@@ -113,7 +133,7 @@ nutrilog rm <POINT_ID> -y
 
 ---
 
-## 5. Configuration & Timezone
+## 6. Configuration & Timezone
 
 ```bash
 # View current timezone configuration
@@ -129,7 +149,7 @@ nutrilog config set --timezone auto
 
 ---
 
-## 6. Authentication
+## 7. Authentication
 
 Nutrilog uses Google OAuth 2.0 with offline refresh tokens. It works out-of-the-box with zero configuration:
 

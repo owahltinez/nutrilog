@@ -140,6 +140,15 @@ def test_parse_time_str_with_timezone():
     assert parsed.tzinfo == aest
 
 
+def test_parse_time_str_does_not_inherit_unspecified_clock_fields():
+    aest = timezone(timedelta(hours=10))
+    base = datetime(2026, 8, 19, 12, 11, 37, 123456, tzinfo=aest)
+
+    parsed = parse_time_str("2026-08-20 7pm", base_date=base, tz=aest)
+
+    assert parsed == datetime(2026, 8, 20, 19, 0, tzinfo=aest)
+
+
 def test_parse_shorthand_saturated_fat_and_sodium():
     result = parse_shorthand(
         "20p 8.3f saturated fat: 4.4g sodium: 242mg Bar", tz=timezone.utc

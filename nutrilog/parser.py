@@ -327,7 +327,8 @@ def parse_time_str(
     """Parse '12:30', '1:00pm', '2026-08-17 12:30' or 'today 12pm'."""
     active_tz = tz or get_user_timezone()
     now = base_date or datetime.now(active_tz)
-    parsed = date_parser.parse(time_str, default=now)
+    default = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    parsed = date_parser.parse(time_str, default=default)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=active_tz)
     return parsed

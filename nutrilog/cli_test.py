@@ -1,6 +1,7 @@
 """Unit tests for nutrilog.cli."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from nutrilog.models import (
     MealLog,
     MealType,
     NutrientEntry,
+    Serving,
     TimeInterval,
 )
 from nutrilog.storage import ENV_CONFIG_DIR
@@ -192,6 +194,152 @@ def test_cli_history_json(temp_config_dir: Path):
         assert parsed["summary"]["total_calories"] == 200.0
         assert len(parsed["meals"]) == 1
         assert parsed["meals"][0]["name"] == "Protein Shake"
+
+
+def _copy_source() -> MealLog:
+    return MealLog(
+        id="source-123",
+        foodDisplayName="Pasta Dinner",
+        mealType=MealType.DINNER,
+        interval=TimeInterval(
+            startTime="2026-08-18T19:00:00+10:00",
+            endTime="2026-08-18T19:01:00+10:00",
+            startUtcOffset="36000s",
+            endUtcOffset="36000s",
+        ),
+        energy=Energy(kcal=700),
+        totalCarbohydrate=GramsQuantity(grams=65),
+        totalFat=GramsQuantity(grams=21),
+        nutrients=[
+            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=42)),
+            NutrientEntry(
+                nutrient="DIETARY_FIBER",
+                quantity=GramsQuantity(grams=8.5, userProvidedUnit="GRAM"),
+            ),
+            NutrientEntry(
+                nutrient="SODIUM",
+                quantity=GramsQuantity(
+                    grams=0.72, userProvidedUnit="MILLIGRAM"
+                ),
+            ),
+        ],
+        serving=Serving(amount=1, unit="meal"),
+    )
+
+
+def test_cli_copy_preserves_source_and_all_nutrition(temp_config_dir: Path):
+    source = _copy_source()
+    source_before = source.model_dump()
+    saved = None
+
+    def save_copy(meal: MealLog) -> MealLog:
+        nonlocal saved
+        saved = meal
+        return meal.model_copy(update={"id": "copy-456"})
+
+    with (
+        patch(
+            "nutrilog.cli.GoogleHealthClient.get_meal",
+            return_value=source,
+        ) as mock_get,
+        patch(
+            "nutrilog.cli.GoogleHealthClient.log_meal",
+            side_effect=save_copy,
+        ) as mock_log,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "copy",
+                "source-123",
+                "--time",
+                "2026-08-19T20:15:00+10:00",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Successfully Copied" in result.stdout
+    assert "copy-456" in result.stdout
+    mock_get.assert_called_once_with("source-123")
+    mock_log.assert_called_once()
+    assert saved is not None
+    assert saved.id is None
+    assert saved.interval.startTime == "2026-08-19T20:15:00+10:00"
+    assert saved.model_dump(exclude={"id", "interval"}) == source.model_dump(
+        exclude={"id", "interval"}
+    )
+    assert source.model_dump() == source_before
+
+
+def test_cli_copy_defaults_to_now_and_supports_overrides(
+    temp_config_dir: Path,
+):
+    source = _copy_source()
+    current_time = datetime(
+        2026, 8, 19, 21, 30, tzinfo=timezone(timedelta(hours=10))
+    )
+
+    with (
+        patch(
+            "nutrilog.cli.GoogleHealthClient.get_meal",
+            return_value=source,
+        ),
+        patch("nutrilog.cli.GoogleHealthClient.log_meal") as mock_log,
+        patch("nutrilog.cli.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = current_time
+        mock_log.side_effect = lambda meal: meal
+        result = runner.invoke(
+            app,
+            [
+                "copy",
+                "source-123",
+                "--name",
+                "Late Pasta",
+                "--meal",
+                "snack",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    copied = mock_log.call_args.args[0]
+    assert copied.foodDisplayName == "Late Pasta"
+    assert copied.mealType == MealType.SNACK
+    assert copied.interval.startTime == "2026-08-19T21:30:00+10:00"
+
+
+def test_cli_copy_dry_run_does_not_create_a_point(temp_config_dir: Path):
+    source = _copy_source()
+
+    with (
+        patch(
+            "nutrilog.cli.GoogleHealthClient.get_meal",
+            return_value=source,
+        ),
+        patch("nutrilog.cli.GoogleHealthClient.log_meal") as mock_log,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "copy",
+                "source-123",
+                "--time",
+                "2026-08-19T20:15:00+10:00",
+                "--dry-run",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    copied = json.loads(result.stdout)
+    assert copied["id"] is None
+    assert copied["time"] == "2026-08-19T20:15:00+10:00"
+    assert copied["name"] == "Pasta Dinner"
+    assert copied["nutrients"] == {
+        "DIETARY_FIBER": 8.5,
+        "SODIUM": 0.72,
+    }
+    mock_log.assert_not_called()
 
 
 def test_cli_delete_command(temp_config_dir: Path):

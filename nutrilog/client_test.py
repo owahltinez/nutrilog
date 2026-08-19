@@ -14,6 +14,7 @@ from nutrilog.client import (
     APIPermissionError,
     AuthenticationError,
     GoogleHealthClient,
+    ResourceNotFoundError,
 )
 from nutrilog.models import (
     Energy,
@@ -126,6 +127,53 @@ def test_log_meal_403_error(client):
                 ),
             )
         )
+
+
+@respx.mock
+def test_get_meal_by_point_id(client):
+    payload = {
+        "name": ("users/123/dataTypes/nutrition-log/dataPoints/point-123"),
+        "nutritionLog": {
+            "foodDisplayName": "Pasta",
+            "mealType": "DINNER",
+            "interval": {
+                "startTime": "2026-08-18T19:00:00+10:00",
+                "endTime": "2026-08-18T19:01:00+10:00",
+            },
+            "energy": {"kcal": 700},
+            "nutrients": [
+                {
+                    "nutrient": "SODIUM",
+                    "quantity": {
+                        "grams": 0.4,
+                        "userProvidedUnit": "MILLIGRAM",
+                    },
+                }
+            ],
+            "serving": {"amount": 1, "unit": "meal"},
+        },
+    }
+    respx.get(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints/point-123"
+    ).respond(200, json=payload)
+
+    meal = client.get_meal("point-123")
+
+    assert meal.id == "point-123"
+    assert meal.foodDisplayName == "Pasta"
+    assert meal.nutrients[0].quantity.userProvidedUnit.value == "MILLIGRAM"
+    assert meal.serving is not None
+    assert meal.serving.unit == "meal"
+
+
+@respx.mock
+def test_get_meal_not_found(client):
+    respx.get(
+        f"{API_BASE_URL}/users/me/dataTypes/nutrition-log/dataPoints/missing"
+    ).respond(404, json={"error": {"message": "Not found"}})
+
+    with pytest.raises(ResourceNotFoundError, match="not found"):
+        client.get_meal("missing")
 
 
 @respx.mock

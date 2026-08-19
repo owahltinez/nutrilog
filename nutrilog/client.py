@@ -149,6 +149,30 @@ class GoogleHealthClient:
                 f"{exc}"
             ) from exc
 
+    def get_meal(self, data_point_id: str) -> MealLog:
+        """Retrieve one nutritionLog point by ID or full resource name."""
+        if "/" in data_point_id:
+            name = data_point_id.lstrip("/")
+        else:
+            name = (
+                f"users/me/dataTypes/{NUTRITION_DATA_TYPE}/dataPoints/"
+                f"{data_point_id}"
+            )
+        url = f"{self.base_url}/{name}"
+
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                headers = self._get_headers()
+                response = client.get(url, headers=headers)
+                if response.is_error:
+                    self._handle_response_error(response)
+                return MealLog.from_api_payload(response.json())
+        except httpx.RequestError as exc:
+            raise GoogleHealthError(
+                f"Network error while communicating with Google Health API: "
+                f"{exc}"
+            ) from exc
+
     def list_meals(
         self,
         start_time: Optional[datetime] = None,

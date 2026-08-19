@@ -22,6 +22,7 @@ from nutrilog.models import (
     MealType,
     NutrientEntry,
     NutrientType,
+    TimeInterval,
 )
 from nutrilog.parser import (
     MACRO_NUTRIENTS as _MACRO_NUTRIENTS,
@@ -173,6 +174,21 @@ def _nutrient_grams(meal: MealLog) -> dict[str, float]:
     }
 
 
+def _meal_json(meal: MealLog) -> dict[str, object]:
+    """Render one meal consistently for machine-readable output."""
+    return {
+        "id": meal.id,
+        "time": meal.interval.startTime,
+        "meal_type": meal.mealType.value,
+        "name": meal.foodDisplayName,
+        "protein_g": meal.protein_g,
+        "calories_kcal": meal.calories_kcal,
+        "carbs_g": meal.carbs_g,
+        "fat_g": meal.fat_g,
+        "nutrients": _nutrient_grams(meal),
+    }
+
+
 def _render_meal_panel(
     meal: MealLog,
     title: str = "Logged to Google Health",
@@ -303,18 +319,7 @@ def _log_meal_internal(
 
     if dry_run:
         if output_json:
-            meal_dict = {
-                "id": meal_log.id,
-                "time": meal_log.interval.startTime,
-                "meal_type": meal_log.mealType.value,
-                "name": meal_log.foodDisplayName,
-                "protein_g": meal_log.protein_g,
-                "calories_kcal": meal_log.calories_kcal,
-                "carbs_g": meal_log.carbs_g,
-                "fat_g": meal_log.fat_g,
-                "nutrients": _nutrient_grams(meal_log),
-            }
-            console.print_json(data=meal_dict)
+            console.print_json(data=_meal_json(meal_log))
         else:
             _render_meal_panel(
                 meal_log, title="Dry Run (Not Sent to Google Health)"
@@ -325,18 +330,7 @@ def _log_meal_internal(
     try:
         saved_meal = client.log_meal(meal_log)
         if output_json:
-            meal_dict = {
-                "id": saved_meal.id,
-                "time": saved_meal.interval.startTime,
-                "meal_type": saved_meal.mealType.value,
-                "name": saved_meal.foodDisplayName,
-                "protein_g": saved_meal.protein_g,
-                "calories_kcal": saved_meal.calories_kcal,
-                "carbs_g": saved_meal.carbs_g,
-                "fat_g": saved_meal.fat_g,
-                "nutrients": _nutrient_grams(saved_meal),
-            }
-            console.print_json(data=meal_dict)
+            console.print_json(data=_meal_json(saved_meal))
         else:
             _render_meal_panel(
                 saved_meal, title="Successfully Logged to Google Health"
@@ -572,6 +566,92 @@ def history_command(
             clean_name = name.replace("_", " ").title()
             summary_panel += f" | {formatted} {clean_name}"
     console.print(Panel(summary_panel, border_style="cyan"))
+
+
+@app.command("copy")
+def copy_command(
+    point_id: str = typer.Argument(
+        ..., help="The Data Point ID of the meal to copy."
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Override the copied meal name."
+    ),
+    meal: Optional[str] = typer.Option(
+        None,
+        "--meal",
+        "-m",
+        help="Override meal type (breakfast, lunch, dinner, snack).",
+    ),
+    time_str: Optional[str] = typer.Option(
+        None,
+        "--time",
+        "-t",
+        help="Time for the copy; defaults to now.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview without creating the copy."
+    ),
+    output_json: bool = typer.Option(
+        False, "--json", help="Output the copied meal as JSON."
+    ),
+):
+    """Copy a logged meal into a new Google Health data point."""
+    active_tz = get_user_timezone()
+    try:
+        copied_time = (
+            parse_time_str(time_str, tz=active_tz)
+            if time_str
+            else datetime.now(active_tz)
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        err_console.print(f"[bold red]Invalid time:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    meal_type = None
+    if meal:
+        meal_type = MealType.from_string(meal)
+        if meal_type == MealType.MEAL_TYPE_UNSPECIFIED:
+            err_console.print(
+                f"[bold red]Invalid meal type:[/bold red] {meal!r}"
+            )
+            raise typer.Exit(code=1)
+
+    client = GoogleHealthClient()
+    try:
+        source = client.get_meal(point_id)
+        copied = source.model_copy(
+            deep=True,
+            update={
+                "id": None,
+                "foodDisplayName": name or source.foodDisplayName,
+                "mealType": meal_type or source.mealType,
+                "interval": TimeInterval.from_datetimes(copied_time),
+            },
+        )
+
+        if dry_run:
+            if output_json:
+                console.print_json(data=_meal_json(copied))
+            else:
+                _render_meal_panel(
+                    copied,
+                    title="Dry Run (Copy Not Sent to Google Health)",
+                    tz=active_tz,
+                )
+            return
+
+        saved = client.log_meal(copied)
+        if output_json:
+            console.print_json(data=_meal_json(saved))
+        else:
+            _render_meal_panel(
+                saved,
+                title="Successfully Copied to Google Health",
+                tz=active_tz,
+            )
+    except GoogleHealthError as exc:
+        err_console.print(f"[bold red]Error copying meal:[/bold red] {exc}")
+        raise typer.Exit(code=1)
 
 
 @app.command("nutrients")

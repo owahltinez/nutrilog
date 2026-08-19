@@ -160,7 +160,27 @@ nutrilog history --days 7 --json
 
 ---
 
-### 4. Deleting Meals
+### 4. Copying a Meal
+
+Reuse a prior meal by its Data Point ID from `nutrilog history`. The copy gets
+the current time by default; the original point remains unchanged. Calories,
+macros, every additional nutrient, and serving metadata are preserved.
+
+```bash
+# Copy now with the original name and meal type
+nutrilog copy <DATA_POINT_ID>
+
+# Choose the time or override descriptive fields
+nutrilog copy <DATA_POINT_ID> --time 7pm
+nutrilog copy <DATA_POINT_ID> --name "Pasta Lunch" --meal lunch
+
+# Preview the new point without creating it
+nutrilog copy <DATA_POINT_ID> --dry-run --json
+```
+
+---
+
+### 5. Deleting Meals
 
 Delete mistakenly logged or duplicate meals using their Data Point ID:
 
@@ -176,7 +196,7 @@ nutrilog rm <DATA_POINT_ID> -y
 
 ---
 
-### 5. Configuration & Timezone
+### 6. Configuration & Timezone
 
 ```bash
 # Display active configuration
