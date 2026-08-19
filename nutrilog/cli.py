@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone, tzinfo
 import json
+import re
 from pathlib import Path
 from typing import Optional
 import typer
@@ -15,11 +16,21 @@ from nutrilog import __version__
 from nutrilog.auth import get_auth_status, login as auth_login, logout as auth_logout
 from nutrilog.client import GoogleHealthClient, GoogleHealthError
 from nutrilog.models import (
+    GramsQuantity,
+    NutrientEntry,
     MacroSummary,
     MealLog,
     MealType,
+    NutrientType,
 )
-from nutrilog.parser import ParsedMacros, parse_shorthand, parse_time_str
+from nutrilog.parser import (
+    MACRO_NUTRIENTS as _MACRO_NUTRIENTS,
+    ParseError,
+    ParsedMacros,
+    parse_shorthand,
+    parse_time_str,
+)
+from nutrilog.units import UnknownUnitError, format_grams, parse_weight
 from nutrilog.storage import (
     get_config_dir,
     get_configured_timezone_name,
@@ -91,6 +102,54 @@ def resolve_date_range(
     return start_dt, end_dt, "Today"
 
 
+# Splits "caffeine=95mg" into its name, number and unit.
+# Digits belong in the name too: vitamin B12 and B6 both carry one.
+_NUTRIENT_ARG = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 \-_]*?)\s*[=:]\s*([0-9]+(?:\.[0-9]+)?)\s*(\S*)\s*$")
+
+
+def parse_nutrient_args(values: Optional[list[str]]) -> dict[NutrientType, GramsQuantity]:
+    """Turn repeated --nutrient arguments into quantities, rejecting anything unclear."""
+    parsed: dict[NutrientType, GramsQuantity] = {}
+    for raw in values or []:
+        match = _NUTRIENT_ARG.match(raw)
+        if not match:
+            raise ParseError(f"Could not read {raw!r}: write it as --nutrient caffeine=95mg.")
+
+        name, amount, unit = match.groups()
+        nutrient = NutrientType.from_string(name)
+        if nutrient is None:
+            raise ParseError(f"Unknown nutrient {name!r}. Run 'nutrilog nutrients' to list them.")
+
+        try:
+            grams, resolved = parse_weight(float(amount), unit)
+        except UnknownUnitError as exc:
+            raise ParseError(f"{name}: {exc}") from exc
+        parsed[nutrient] = GramsQuantity(grams=grams, userProvidedUnit=resolved)
+    return parsed
+
+
+def _extra_nutrients(meal: MealLog) -> list[NutrientEntry]:
+    """Recorded nutrients other than protein, which has its own display field."""
+    return [e for e in meal.nutrients if e.nutrient.upper() != NutrientType.PROTEIN.value]
+
+
+def _describe_nutrients(meal: MealLog) -> dict[str, str]:
+    """Every recorded nutrient, rendered for a human in a legible unit."""
+    return {
+        e.nutrient.upper(): format_grams(e.quantity.grams, e.quantity.userProvidedUnit)
+        for e in _extra_nutrients(meal)
+    }
+
+
+def _nutrient_grams(meal: MealLog) -> dict[str, float]:
+    """Every recorded nutrient in grams, for JSON consumers.
+
+    Grams rather than formatted strings so callers never have to parse "2.4µg", and so this
+    matches the units used by the summary totals.
+    """
+    return {e.nutrient.upper(): e.quantity.grams for e in _extra_nutrients(meal)}
+
+
 def _render_meal_panel(meal: MealLog, title: str = "Logged to Google Health", tz: Optional[tzinfo] = None) -> None:
     active_tz = tz or get_user_timezone()
     try:
@@ -108,8 +167,13 @@ def _render_meal_panel(meal: MealLog, title: str = "Logged to Google Health", tz
         f"[bold blue]Carbs:[/bold blue] {meal.carbs_g:.1f}g    "
         f"[bold magenta]Fat:[/bold magenta] {meal.fat_g:.1f}g",
     ]
-    if meal.fiber_g > 0:
-        lines.append(f"[bold dim]Fiber:[/bold dim] {meal.fiber_g:.1f}g")
+    extras = _describe_nutrients(meal)
+    if extras:
+        rendered = "  ".join(
+            f"{name.replace('_', ' ').title()}: {value}"
+            for name, value in sorted(extras.items())
+        )
+        lines.append(f"[bold dim]{rendered}[/bold dim]")
     if meal.id:
         lines.append(f"[dim]Point ID: {meal.id}[/dim]")
 
@@ -129,10 +193,7 @@ def _log_meal_internal(
     calories: Optional[float] = None,
     carbs: Optional[float] = None,
     fat: Optional[float] = None,
-    fiber: Optional[float] = None,
-    sugar: Optional[float] = None,
-    saturated_fat: Optional[float] = None,
-    sodium_mg: Optional[float] = None,
+    nutrients: Optional[dict[NutrientType, GramsQuantity]] = None,
     name: Optional[str] = None,
     meal_type_str: Optional[str] = None,
     time_str: Optional[str] = None,
@@ -143,7 +204,11 @@ def _log_meal_internal(
     """Core logic to construct, validate, and upload a MealLog."""
     active_tz = get_user_timezone()
 
-    parsed = parse_shorthand(text or "", tz=active_tz)
+    try:
+        parsed = parse_shorthand(text or "", tz=active_tz)
+    except ParseError as exc:
+        err_console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
 
     meal_type = None
     if meal_type_str:
@@ -164,10 +229,8 @@ def _log_meal_internal(
     final_protein = protein if protein is not None else parsed.protein
     final_fat = fat if fat is not None else parsed.fat
     final_carbs = carbs if carbs is not None else parsed.carbs
-    final_fiber = fiber if fiber is not None else parsed.fiber
-    final_sugar = sugar if sugar is not None else parsed.sugar
-    final_saturated_fat = saturated_fat if saturated_fat is not None else parsed.saturated_fat
-    final_sodium_mg = sodium_mg if sodium_mg is not None else parsed.sodium_mg
+    # Flags win over shorthand for the same nutrient, matching how the macros behave.
+    final_nutrients = {**parsed.nutrients, **(nutrients or {})}
     final_calories = calories if calories is not None else parsed.calories
 
     if final_calories <= 0 and (final_protein > 0 or final_carbs > 0 or final_fat > 0):
@@ -189,14 +252,14 @@ def _log_meal_internal(
         fat=final_fat,
         carbs=final_carbs,
         calories=final_calories,
-        fiber=final_fiber,
-        sugar=final_sugar,
-        saturated_fat=final_saturated_fat,
-        sodium_mg=final_sodium_mg,
+        nutrients=final_nutrients,
         meal_type=final_meal_type,
         timestamp=meal_time,
         tz=active_tz,
     ).to_meal_log()
+
+    for warning in parsed.warnings:
+        err_console.print(f"[yellow]Warning:[/yellow] {warning}")
 
     if dry_run:
         if output_json:
@@ -209,10 +272,7 @@ def _log_meal_internal(
                 "calories_kcal": meal_log.calories_kcal,
                 "carbs_g": meal_log.carbs_g,
                 "fat_g": meal_log.fat_g,
-                "fiber_g": meal_log.fiber_g,
-                "sugar_g": meal_log.sugar_g,
-                "saturated_fat_g": meal_log.saturated_fat_g,
-                "sodium_mg": meal_log.sodium_mg,
+                "nutrients": _nutrient_grams(meal_log),
             }
             console.print_json(data=meal_dict)
         else:
@@ -232,10 +292,7 @@ def _log_meal_internal(
                 "calories_kcal": saved_meal.calories_kcal,
                 "carbs_g": saved_meal.carbs_g,
                 "fat_g": saved_meal.fat_g,
-                "fiber_g": saved_meal.fiber_g,
-                "sugar_g": saved_meal.sugar_g,
-                "saturated_fat_g": saved_meal.saturated_fat_g,
-                "sodium_mg": saved_meal.sodium_mg,
+                "nutrients": _nutrient_grams(saved_meal),
             }
             console.print_json(data=meal_dict)
         else:
@@ -273,26 +330,31 @@ def log_command(
     calories: Optional[float] = typer.Option(None, "--calories", "-k", help="Calories in kcal."),
     carbs: Optional[float] = typer.Option(None, "--carbs", "-c", help="Carbohydrates in grams."),
     fat: Optional[float] = typer.Option(None, "--fat", "-f", help="Total fat in grams."),
-    fiber: Optional[float] = typer.Option(None, "--fiber", help="Fiber in grams."),
-    sugar: Optional[float] = typer.Option(None, "--sugar", help="Sugars in grams."),
-    saturated_fat: Optional[float] = typer.Option(None, "--saturated-fat", help="Saturated fat in grams."),
-    sodium: Optional[float] = typer.Option(None, "--sodium", help="Sodium in milligrams."),
+    nutrient: Optional[list[str]] = typer.Option(
+        None,
+        "--nutrient",
+        "-n",
+        help="Any other nutrient, with a unit; repeatable (e.g. -n caffeine=95mg).",
+    ),
     meal: Optional[str] = typer.Option(None, "--meal", "-m", help="Meal type (breakfast, lunch, dinner, snack)."),
     time_str: Optional[str] = typer.Option(None, "--time", "-t", help="Time of meal (e.g. '12:30', '1pm')."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without uploading to Google Health."),
     output_json: bool = typer.Option(False, "--json", help="Output payload as JSON."),
 ):
     """Log a meal with macros and calories to Google Health."""
+    try:
+        nutrients = parse_nutrient_args(nutrient)
+    except ParseError as exc:
+        err_console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
     _log_meal_internal(
         text=name_or_shorthand,
         protein=protein,
         calories=calories,
         carbs=carbs,
         fat=fat,
-        fiber=fiber,
-        sugar=sugar,
-        saturated_fat=saturated_fat,
-        sodium_mg=sodium,
+        nutrients=nutrients,
         meal_type_str=meal,
         time_str=time_str,
         dry_run=dry_run,
@@ -342,7 +404,7 @@ def history_command(
                 "total_calories": summary.total_calories,
                 "total_carbs": summary.total_carbs,
                 "total_fat": summary.total_fat,
-                "total_fiber": summary.total_fiber,
+                "nutrient_totals": summary.nutrient_totals,
                 "meal_count": summary.meal_count,
             },
             "meals": [
@@ -355,10 +417,7 @@ def history_command(
                     "calories_kcal": m.calories_kcal,
                     "carbs_g": m.carbs_g,
                     "fat_g": m.fat_g,
-                    "fiber_g": m.fiber_g,
-                    "sugar_g": m.sugar_g,
-                    "saturated_fat_g": m.saturated_fat_g,
-                    "sodium_mg": m.sodium_mg,
+                    "nutrients": _nutrient_grams(m),
                 }
                 for m in meals
             ],
@@ -376,9 +435,6 @@ def history_command(
     table.add_column("Calories", justify="right", style="yellow")
     table.add_column("Carbs", justify="right", style="blue")
     table.add_column("Fat", justify="right", style="magenta")
-    show_fiber = any(m.fiber_g > 0 for m in meals)
-    if show_fiber:
-        table.add_column("Fiber", justify="right", style="cyan")
     table.add_column("Point ID", style="dim")
 
     if not meals:
@@ -399,8 +455,6 @@ def history_command(
                 f"{m.carbs_g:.1f}g",
                 f"{m.fat_g:.1f}g",
             ]
-            if show_fiber:
-                cells.append(f"{m.fiber_g:.1f}g")
             cells.append(m.id or "-")
             table.add_row(*cells)
 
@@ -413,9 +467,38 @@ def history_command(
         f"{summary.total_carbs:.1f}g Carbs | "
         f"{summary.total_fat:.1f}g Fat"
     )
-    if summary.total_fiber > 0:
-        summary_panel += f" | {summary.total_fiber:.1f}g Fiber"
+    for name, grams in sorted(summary.nutrient_totals.items()):
+        if grams > 0:
+            summary_panel += f" | {format_grams(grams, None)} {name.replace('_', ' ').title()}"
     console.print(Panel(summary_panel, border_style="cyan"))
+
+
+@app.command("nutrients")
+def nutrients_command():
+    """List every nutrient that can be logged, and how to write it."""
+    macros = Table(title="Macros (unitless, in grams)", header_style="bold magenta")
+    macros.add_column("Nutrient")
+    macros.add_column("Flag")
+    macros.add_column("Shorthand", style="dim")
+    for label, flag, shorthand in (
+        ("Protein", "-p", "38p"),
+        ("Calories", "-k", "580k"),
+        ("Carbohydrates", "-c", "54c"),
+        ("Fat", "-f", "18f"),
+    ):
+        macros.add_row(label, flag, shorthand)
+    console.print(macros)
+
+    # Names, not flags: 39 nutrients cannot each have a letter, so they are written out
+    # in full with an explicit unit.
+    names = sorted(n.value.replace("_", " ").lower() for n in NutrientType if n not in _MACRO_NUTRIENTS)
+    console.print(
+        Panel(
+            "\n".join(", ".join(names[i : i + 4]) for i in range(0, len(names), 4)),
+            title="[bold]Other nutrients[/bold] — write with a unit, e.g. [cyan]-n caffeine=95mg[/cyan]",
+            border_style="cyan",
+        )
+    )
 
 
 @app.command("delete")

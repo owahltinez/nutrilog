@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import pytest
 
-from nutrilog.models import MealType
-from nutrilog.parser import infer_meal_type, parse_shorthand, parse_time_str
+from nutrilog.models import MealType, NutrientType
+from nutrilog.parser import ParseError, infer_meal_type, parse_shorthand, parse_time_str
+from nutrilog.units import WeightUnit
 from nutrilog.storage import ENV_CONFIG_DIR
 
 
@@ -46,15 +47,18 @@ def test_parse_shorthand_prefix_syntax():
 
 
 def test_parse_shorthand_explicit_labels():
-    input_str = "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g, sodium: 300"
+    input_str = (
+        "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, "
+        "fiber: 2g, sodium: 300mg"
+    )
     result = parse_shorthand(input_str)
 
     assert result.protein == 35.0
     assert result.fat == 12.0
     assert result.carbs == 5.0
     assert result.calories == 280.0
-    assert result.fiber == 2.0
-    assert result.sodium_mg == 300.0  # 'sodium: 300' on a label means 300mg.
+    assert _grams(result, NutrientType.DIETARY_FIBER) == 2.0
+    assert _grams(result, NutrientType.SODIUM) == pytest.approx(0.3)
     assert result.name == "Grilled Salmon"
 
 
@@ -127,26 +131,124 @@ def test_parse_time_str_with_timezone():
     assert parsed.tzinfo == aest
 
 
-def test_parse_shorthand_saturated_fat_and_sodium_in_mg():
-    result = parse_shorthand("20p 8.3f 4.4sat 242sod Bar", tz=timezone.utc)
-
-    assert result.saturated_fat == 4.4
-    assert result.sodium_mg == 242.0
+def test_parse_shorthand_saturated_fat_and_sodium():
+    result = parse_shorthand(
+        "20p 8.3f saturated fat: 4.4g sodium: 242mg Bar", tz=timezone.utc
+    )
 
     nutrients = {n.nutrient: n.quantity.grams for n in result.to_meal_log().nutrients}
     assert nutrients["SATURATED_FAT"] == 4.4
-    assert nutrients["SODIUM"] == 0.242
+    assert nutrients["SODIUM"] == pytest.approx(0.242)
+    assert result.name == "Bar"
 
 
 def test_parse_shorthand_accepts_british_fibre_spelling():
     result = parse_shorthand("fibre: 2g Oatmeal", tz=timezone.utc)
-    assert result.fiber == 2.0
+    assert _grams(result, NutrientType.DIETARY_FIBER) == 2.0
     assert result.name == "Oatmeal"
 
 
 def test_parse_shorthand_sodium_honours_gram_unit():
-    """'0.5g sodium' is 500mg; the unit must not be discarded."""
-    assert parse_shorthand("sodium: 0.5g Test", tz=timezone.utc).sodium_mg == 500.0
-    assert parse_shorthand("0.5g sodium Test", tz=timezone.utc).sodium_mg == 500.0
-    assert parse_shorthand("sodium: 500mg Test", tz=timezone.utc).sodium_mg == 500.0
-    assert parse_shorthand("500mg sodium Test", tz=timezone.utc).sodium_mg == 500.0
+    """'0.5g sodium' and '500mg sodium' are the same half gram, whichever way it is written."""
+    for text in (
+        "sodium: 0.5g Test",
+        "0.5g sodium Test",
+        "sodium: 500mg Test",
+        "500mg sodium Test",
+    ):
+        result = parse_shorthand(text, tz=timezone.utc)
+        assert _grams(result, NutrientType.SODIUM) == pytest.approx(0.5), text
+
+
+def _grams(result, nutrient: NutrientType) -> float:
+    return result.nutrients[nutrient].grams
+
+
+def test_parses_any_api_nutrient_by_name():
+    """Caffeine needs no dedicated flag, field or shorthand."""
+    result = parse_shorthand("Oat Cortado caffeine: 95mg")
+
+    assert _grams(result, NutrientType.CAFFEINE) == pytest.approx(0.095)
+    assert result.name == "Oat Cortado"
+
+
+def test_parses_nutrients_in_every_labelled_form():
+    for text in (
+        "Eggs sodium: 450mg",
+        "Eggs sodium = 450mg",
+        "Eggs sodium 450mg",
+        "Eggs 450mg sodium",
+    ):
+        result = parse_shorthand(text)
+        assert _grams(result, NutrientType.SODIUM) == pytest.approx(0.45), text
+        assert result.name == "Eggs", text
+
+
+def test_records_the_unit_the_value_was_written_in():
+    """Stored so the Health app can show 95mg rather than 0.095g."""
+    result = parse_shorthand("Oat Cortado caffeine: 95mg")
+
+    assert result.nutrients[NutrientType.CAFFEINE].userProvidedUnit == WeightUnit.MILLIGRAM
+
+
+def test_parses_microgram_nutrients():
+    result = parse_shorthand("Supplement vitamin b12: 2.4µg")
+
+    assert _grams(result, NutrientType.VITAMIN_B12) == pytest.approx(0.0000024)
+
+
+def test_nutrient_without_a_unit_is_an_error():
+    """Assuming a unit would risk a 1000x error, so the user is told instead."""
+    with pytest.raises(ParseError) as excinfo:
+        parse_shorthand("Eggs sodium: 450")
+
+    assert "sodium" in str(excinfo.value).lower()
+
+
+def test_nutrient_with_an_unrecognised_unit_is_an_error():
+    with pytest.raises(ParseError):
+        parse_shorthand("Eggs sodium: 450 spoons")
+
+
+def test_macros_stay_unitless_shorthand():
+    """The four macros keep their single letters; only the long tail needs names."""
+    result = parse_shorthand("38p 18f 54c 580k Tofu Bowl")
+
+    assert (result.protein, result.fat, result.carbs, result.calories) == (38.0, 18.0, 54.0, 580.0)
+    assert result.name == "Tofu Bowl"
+
+
+def test_food_names_containing_nutrient_words_survive():
+    """A bare nutrient word with no number and unit is part of the food name."""
+    for text in ("Musashi Protein Crisp", "Iron Bru", "Low Fat Greek Yogurt"):
+        assert parse_shorthand(text).name == text
+
+
+def test_unclaimed_weight_tokens_are_reported():
+    """A dropped macro used to be indistinguishable from one never typed."""
+    result = parse_shorthand("Eggs 450mg")
+
+    assert result.nutrients == {}
+    assert any("450mg" in w for w in result.warnings)
+
+
+def test_nutrient_names_ignore_separators_and_case():
+    result = parse_shorthand("Juice Vitamin-C: 60mg, saturated fat: 2g")
+
+    assert _grams(result, NutrientType.VITAMIN_C) == pytest.approx(0.06)
+    assert _grams(result, NutrientType.SATURATED_FAT) == pytest.approx(2.0)
+
+
+def test_grams_written_for_a_milligram_nutrient_are_kept_as_written():
+    """0.45g of sodium is 450mg; the unit is recorded, the grams are not rescaled."""
+    result = parse_shorthand("Eggs sodium: 0.45g")
+
+    assert _grams(result, NutrientType.SODIUM) == pytest.approx(0.45)
+    assert result.nutrients[NutrientType.SODIUM].userProvidedUnit == WeightUnit.GRAM
+
+
+def test_parsed_nutrients_reach_the_meal_log():
+    meal = parse_shorthand("Oat Cortado 0.8p caffeine: 95mg").to_meal_log()
+
+    assert meal.nutrient_grams(NutrientType.CAFFEINE) == pytest.approx(0.095)
+    assert meal.nutrient_grams(NutrientType.PROTEIN) == pytest.approx(0.8)

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, tzinfo
+from datetime import datetime, tzinfo
 import re
-from typing import Optional
+from typing import Dict, Optional
 from dateutil import parser as date_parser
 
 from nutrilog.models import (
+    NUTRIENT_ALIASES,
     Energy,
     GramsQuantity,
     MealLog,
@@ -16,6 +17,11 @@ from nutrilog.models import (
     NutrientType,
     TimeInterval,
 )
+from nutrilog.units import UNIT_SPELLINGS, UnknownUnitError, parse_weight
+
+
+class ParseError(ValueError):
+    """The input names a nutrient but its quantity cannot be read."""
 
 
 def infer_meal_type(dt: datetime, tz: Optional[tzinfo] = None) -> MealType:
@@ -37,6 +43,72 @@ def infer_meal_type(dt: datetime, tz: Optional[tzinfo] = None) -> MealType:
         return MealType.SNACK
 
 
+# The only nutrients with single-letter shorthand. Kept closed deliberately: the API has 39
+# nutrients and letters do not scale, since "c" alone could mean carbs, calcium, cholesterol,
+# chloride, chromium or copper. Everything else is written by name.
+_MACRO_ALIASES = {
+    "protein": ("p", "pro", "prot", "protein", "proteins"),
+    "fat": ("f", "fat", "fats", "total_fat"),
+    "carbs": ("c", "carb", "carbs", "carbohydrate", "carbohydrates", "total_carb"),
+    "calories": ("k", "cal", "cals", "kcal", "kcals", "calorie", "calories", "energy"),
+}
+_MACRO_BY_ALIAS = {
+    alias: macro for macro, aliases in _MACRO_ALIASES.items() for alias in aliases
+}
+
+
+def _alternation(names) -> str:
+    """A regex alternation, longest first so "sugars" wins over "sugar".
+
+    re.escape turns a space into "\\ ", which is what lets the caller swap it for a
+    separator class covering spaces, underscores and hyphens.
+    """
+    return "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+
+
+# Protein and carbohydrates are nutrients to the API but macros here: they own the "p" and
+# "c" shorthand and their own fields, so the macro rules below claim them. Leaving them in
+# the nutrient alternation would let "protein: 35g" match here and never reach a macro.
+MACRO_NUTRIENTS = {NutrientType.PROTEIN, NutrientType.CARBOHYDRATES}
+
+# Nutrient names accept spaces and hyphens where the API uses underscores, so
+# "vitamin c" and "saturated-fat" both resolve.
+_NUTRIENT_NAMES = [
+    n.value.replace("_", " ") for n in NutrientType if n not in MACRO_NUTRIENTS
+] + [
+    alias.replace("_", " ")
+    for alias, nutrient in NUTRIENT_ALIASES.items()
+    if nutrient not in MACRO_NUTRIENTS
+]
+_NUTRIENT_PATTERN = _alternation(_NUTRIENT_NAMES).replace(r"\ ", r"[\s_-]+")
+_UNIT_PATTERN = _alternation(UNIT_SPELLINGS)
+_NUMBER = r"[0-9]+(?:\.[0-9]+)?"
+_MACRO_PATTERN = _alternation(_MACRO_BY_ALIAS)
+
+# A labelled nutrient: "sodium: 450mg", "sodium = 450mg", "sodium 450mg". A separator or a
+# unit must be present, so "Iron Bru" and "Musashi Protein Crisp" stay part of the food name.
+_NUTRIENT_LABELLED = re.compile(
+    rf"(?i)\b({_NUTRIENT_PATTERN})\s*(?::|=)\s*({_NUMBER})\s*([^\s,;]*)"
+)
+_NUTRIENT_LABEL_FIRST = re.compile(
+    rf"(?i)\b({_NUTRIENT_PATTERN})\s+({_NUMBER})\s*({_UNIT_PATTERN})\b"
+)
+_NUTRIENT_VALUE_FIRST = re.compile(
+    rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*({_UNIT_PATTERN})\s+({_NUTRIENT_PATTERN})\b"
+)
+
+# Macros are unitless by convention: "38p", "p38", "protein: 38", "38g protein".
+_MACRO_LABELLED = re.compile(rf"(?i)\b({_MACRO_PATTERN})\s*[:=]\s*({_NUMBER})\s*(?:g|mg|kcal|cal|k)?\b")
+_MACRO_VALUE_FIRST = re.compile(rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*(?:g|mg)?\s+({_MACRO_PATTERN})\b")
+_MACRO_SUFFIX = re.compile(rf"(?i)(?:^|(?<=\s))({_NUMBER})\s*({_MACRO_PATTERN})\b")
+_MACRO_PREFIX = re.compile(
+    rf"(?i)(?:^|(?<=\s))(p|pro|f|c|cal|kcal)({_NUMBER})(?:g|mg|kcal|cal|k)?\b"
+)
+
+# Anything left that looks like a weight was probably meant as a nutrient.
+_LEFTOVER_WEIGHT = re.compile(rf"(?i)(?:^|(?<=\s))({_NUMBER}\s*(?:{_UNIT_PATTERN}))\b")
+
+
 class ParsedMacros:
     def __init__(
         self,
@@ -45,13 +117,11 @@ class ParsedMacros:
         fat: float = 0.0,
         carbs: float = 0.0,
         calories: float = 0.0,
-        fiber: float = 0.0,
-        sugar: float = 0.0,
-        saturated_fat: float = 0.0,
-        sodium_mg: float = 0.0,
+        nutrients: Optional[Dict[NutrientType, GramsQuantity]] = None,
         meal_type: Optional[MealType] = None,
         timestamp: Optional[datetime] = None,
         tz: Optional[tzinfo] = None,
+        warnings: Optional[list[str]] = None,
     ):
         from nutrilog.storage import get_user_timezone
 
@@ -61,13 +131,11 @@ class ParsedMacros:
         self.fat = fat
         self.carbs = carbs
         self.calories = calories
-        self.fiber = fiber
-        self.sugar = sugar
-        self.saturated_fat = saturated_fat
-        # Named for its unit: labels state sodium in mg, the API field is grams.
-        self.sodium_mg = sodium_mg
+        # Everything beyond the four macros, keyed by API nutrient.
+        self.nutrients: Dict[NutrientType, GramsQuantity] = nutrients or {}
         self.meal_type = meal_type
         self.timestamp = timestamp or datetime.now(self.active_tz)
+        self.warnings = warnings or []
 
         # If calories not provided but macros are, estimate calories
         if self.calories <= 0 and (self.protein > 0 or self.carbs > 0 or self.fat > 0):
@@ -79,42 +147,20 @@ class ParsedMacros:
         meal_type = self.meal_type or infer_meal_type(dt, tz=self.active_tz)
         name = self.name or meal_type.value.capitalize()
 
-        nutrients: list[NutrientEntry] = []
+        # Protein is the one macro the API keeps in the nutrients array rather than a
+        # dedicated field, so it is merged in here alongside the long tail.
+        entries: list[NutrientEntry] = []
         if self.protein > 0:
-            nutrients.append(
+            entries.append(
                 NutrientEntry(
                     nutrient=NutrientType.PROTEIN.value,
                     quantity=GramsQuantity(grams=self.protein),
                 )
             )
-        if self.fiber > 0:
-            nutrients.append(
-                NutrientEntry(
-                    nutrient=NutrientType.DIETARY_FIBER.value,
-                    quantity=GramsQuantity(grams=self.fiber),
-                )
-            )
-        if self.sugar > 0:
-            nutrients.append(
-                NutrientEntry(
-                    nutrient=NutrientType.SUGAR.value,
-                    quantity=GramsQuantity(grams=self.sugar),
-                )
-            )
-        if self.saturated_fat > 0:
-            nutrients.append(
-                NutrientEntry(
-                    nutrient=NutrientType.SATURATED_FAT.value,
-                    quantity=GramsQuantity(grams=self.saturated_fat),
-                )
-            )
-        if self.sodium_mg > 0:
-            nutrients.append(
-                NutrientEntry(
-                    nutrient=NutrientType.SODIUM.value,
-                    quantity=GramsQuantity(grams=self.sodium_mg / 1000.0),
-                )
-            )
+        for nutrient, quantity in self.nutrients.items():
+            if nutrient == NutrientType.PROTEIN:
+                continue
+            entries.append(NutrientEntry(nutrient=nutrient.value, quantity=quantity))
 
         return MealLog(
             foodDisplayName=name,
@@ -123,40 +169,17 @@ class ParsedMacros:
             energy=Energy(kcal=round(self.calories, 1)),
             totalCarbohydrate=GramsQuantity(grams=round(self.carbs, 2)),
             totalFat=GramsQuantity(grams=round(self.fat, 2)),
-            nutrients=nutrients,
+            nutrients=entries,
         )
 
 
-def _classify_nutrient(tag: str) -> Optional[str]:
-    t = tag.lower().strip()
-    if t in ("p", "pro", "prot", "protein", "proteins"):
-        return "protein"
-    elif t in ("f", "fat", "fats", "total_fat"):
-        return "fat"
-    elif t in ("c", "carb", "carbs", "carbohydrate", "carbohydrates", "total_carb"):
-        return "carbs"
-    elif t in ("k", "cal", "cals", "kcal", "kcals", "calorie", "calories", "energy"):
-        return "calories"
-    elif t in ("fib", "fiber", "fibre", "fibers", "fibres"):
-        return "fiber"
-    elif t in ("sug", "sugar", "sugars"):
-        return "sugar"
-    elif t in ("sat", "satfat", "saturated", "saturated_fat"):
-        return "saturated_fat"
-    elif t in ("sod", "sodium"):
-        return "sodium"
-    return None
-
-
-def _scale_for_unit(category: str, value: float, unit: Optional[str]) -> float:
-    """Normalise a parsed value to the unit its category is stored in.
-
-    Sodium is tracked in milligrams, so a value written in grams must be scaled.
-    Every other nutrient is already in grams.
-    """
-    if category == "sodium" and unit and unit.lower() == "g":
-        return value * 1000.0
-    return value
+def _quantity(nutrient_name: str, value: str, unit: Optional[str]) -> GramsQuantity:
+    """Build a quantity, refusing to guess a unit the user did not write."""
+    try:
+        grams, resolved = parse_weight(float(value), unit)
+    except UnknownUnitError as exc:
+        raise ParseError(f"{nutrient_name}: {exc}") from exc
+    return GramsQuantity(grams=grams, userProvidedUnit=resolved)
 
 
 def parse_shorthand(
@@ -169,8 +192,10 @@ def parse_shorthand(
     - '38p 18f 54c 580k Tofu Edamame Soba Bowl'
     - 'Tofu Bowl 38g protein, 18g fat, 54g carbs, 580 kcal'
     - 'protein: 30, carbs: 40, fat: 10, calories: 350'
-    - 'p38.5 f18 c54.2 580cal Protein Bowl'
-    - '35p 600k'
+    - 'Oat Cortado caffeine: 95mg, magnesium: 7mg'
+
+    The four macros are unitless; every other nutrient is written by name and needs an
+    explicit unit. Raises ParseError when a named nutrient's unit is missing or unknown.
     """
     from nutrilog.storage import get_user_timezone
 
@@ -179,91 +204,47 @@ def parse_shorthand(
     if not cleaned:
         return ParsedMacros(meal_type=default_meal_type, timestamp=default_time, tz=active_tz)
 
-    protein = 0.0
-    fat = 0.0
-    carbs = 0.0
-    calories = 0.0
-    fiber = 0.0
-    sugar = 0.0
-    saturated_fat = 0.0
-    sodium = 0.0
-
+    macros = {"protein": 0.0, "fat": 0.0, "carbs": 0.0, "calories": 0.0}
+    nutrients: Dict[NutrientType, GramsQuantity] = {}
     working_text = cleaned
 
-    def apply_val(category: str, val: float):
-        nonlocal protein, fat, carbs, calories, fiber, sugar, saturated_fat, sodium
-        if category == "protein":
-            protein = val
-        elif category == "fat":
-            fat = val
-        elif category == "carbs":
-            carbs = val
-        elif category == "calories":
-            calories = val
-        elif category == "fiber":
-            fiber = val
-        elif category == "sugar":
-            sugar = val
-        elif category == "saturated_fat":
-            saturated_fat = val
-        elif category == "sodium":
-            sodium = val
-
-    # 1. Match explicit key-value pairs like "protein: 35g", "calories = 580", "fat: 12"
-    kv_pattern = re.compile(
-        r"(?i)\b(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|calories|calorie|kcals|kcal|cals|cal|energy|fibres|fibers|fibre|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*(mg|g|kcal|cal|k)?\b"
-    )
-
-    def kv_sub(m: re.Match) -> str:
-        tag, val_str, unit = m.group(1), m.group(2), m.group(3)
-        category = _classify_nutrient(tag)
-        if category:
-            apply_val(category, _scale_for_unit(category, float(val_str), unit))
+    def take_nutrient(name: str, value: str, unit: Optional[str]) -> str:
+        nutrient = NutrientType.from_string(name)
+        if nutrient is None:
+            return " "
+        nutrients[nutrient] = _quantity(name, value, unit)
         return " "
 
-    working_text = kv_pattern.sub(kv_sub, working_text)
-
-    # 2. Match "NUMBER g NUTRIENT" like "38g protein", "54g carbs", "500mg sodium"
-    num_g_nutrient_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(g|mg)\s+(protein|proteins|pro|prot|total_fat|fat|fats|total_carb|carbohydrates|carbohydrate|carbs|carb|fibres|fibers|fibre|fiber|fib|saturated_fat|saturated|satfat|sat|sugars|sugar|sug|sodium|sod)\b"
+    # Named nutrients first: they are unambiguous, and consuming them keeps their units
+    # from being mistaken for macro values.
+    working_text = _NUTRIENT_LABELLED.sub(
+        lambda m: take_nutrient(m.group(1), m.group(2), m.group(3)), working_text
+    )
+    working_text = _NUTRIENT_LABEL_FIRST.sub(
+        lambda m: take_nutrient(m.group(1), m.group(2), m.group(3)), working_text
+    )
+    working_text = _NUTRIENT_VALUE_FIRST.sub(
+        lambda m: take_nutrient(m.group(3), m.group(1), m.group(2)), working_text
     )
 
-    def num_g_sub(m: re.Match) -> str:
-        val_str, unit, tag = m.group(1), m.group(2), m.group(3)
-        category = _classify_nutrient(tag)
-        if category:
-            apply_val(category, _scale_for_unit(category, float(val_str), unit))
+    def take_macro(alias: str, value: str) -> str:
+        macro = _MACRO_BY_ALIAS.get(alias.lower())
+        if macro:
+            macros[macro] = float(value)
         return " "
 
-    working_text = num_g_nutrient_pattern.sub(num_g_sub, working_text)
+    working_text = _MACRO_LABELLED.sub(lambda m: take_macro(m.group(1), m.group(2)), working_text)
+    working_text = _MACRO_VALUE_FIRST.sub(lambda m: take_macro(m.group(2), m.group(1)), working_text)
+    working_text = _MACRO_SUFFIX.sub(lambda m: take_macro(m.group(2), m.group(1)), working_text)
+    working_text = _MACRO_PREFIX.sub(lambda m: take_macro(m.group(1), m.group(2)), working_text)
 
-    # 3. Match suffix tokens like "38p", "18f", "54c", "580k", "580kcal", "580cal", "9fib"
-    suffix_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))([0-9]+(?:\.[0-9]+)?)\s*(p|pro|f|fat|c|carb|carbs|k|cal|cals|kcal|kcals|calories|fib|fibre|fiber|saturated_fat|saturated|satfat|sat|sug|sugar|sod|sodium)\b"
-    )
-
-    def suffix_sub(m: re.Match) -> str:
-        val_str, tag = m.group(1), m.group(2)
-        category = _classify_nutrient(tag)
-        if category:
-            apply_val(category, float(val_str))
-        return " "
-
-    working_text = suffix_pattern.sub(suffix_sub, working_text)
-
-    # 4. Match prefix tokens like "p38", "p38.5", "f18", "c54", "cal580"
-    prefix_pattern = re.compile(
-        r"(?i)(?:^|(?<=\s))(p|pro|f|c|cal|kcal)([0-9]+(?:\.[0-9]+)?)(?:g|mg|kcal|cal|k)?\b"
-    )
-
-    def prefix_sub(m: re.Match) -> str:
-        tag, val_str = m.group(1), m.group(2)
-        category = _classify_nutrient(tag)
-        if category:
-            apply_val(category, float(val_str))
-        return " "
-
-    working_text = prefix_pattern.sub(prefix_sub, working_text)
+    # A leftover weight means a nutrient name was missing or misspelt. Silently folding it
+    # into the food name is what made dropped values invisible.
+    warnings = [
+        f"Ignored {m.group(1)!r}: no nutrient named alongside it."
+        for m in _LEFTOVER_WEIGHT.finditer(working_text)
+    ]
+    working_text = _LEFTOVER_WEIGHT.sub(" ", working_text)
 
     # Clean up remaining food name text
     cleaned_name = re.sub(r"[,;:\-_|]+", " ", working_text)
@@ -271,17 +252,15 @@ def parse_shorthand(
 
     return ParsedMacros(
         name=cleaned_name,
-        protein=protein,
-        fat=fat,
-        carbs=carbs,
-        calories=calories,
-        fiber=fiber,
-        sugar=sugar,
-        saturated_fat=saturated_fat,
-        sodium_mg=sodium,
+        protein=macros["protein"],
+        fat=macros["fat"],
+        carbs=macros["carbs"],
+        calories=macros["calories"],
+        nutrients=nutrients,
         meal_type=default_meal_type,
         timestamp=default_time,
         tz=active_tz,
+        warnings=warnings,
     )
 
 

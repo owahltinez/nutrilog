@@ -83,6 +83,9 @@ nutrilog log "38p 18f 54c 580k Tofu Edamame Soba Bowl"
 # Explicit units and labels
 nutrilog log "Grilled Salmon protein: 35g, fat: 12g, carbs: 5g, calories: 280, fiber: 2g"
 
+# Any of the API's 39 nutrients, by name with a unit
+nutrilog log "Oat Cortado 0.8p 40k caffeine: 63mg"
+
 # Prefix notation
 nutrilog log "p30 f10 c45 390cal Chicken Burrito Bowl"
 
@@ -98,9 +101,14 @@ nutrilog log "30p 40c 10f Oatmeal"
 | **Fat** | `18f`, `f18`, `18g fat`, `fat: 18g`, `total_fat: 18` |
 | **Carbohydrates** | `54c`, `c54`, `54g carbs`, `carbs: 54g`, `carb: 54` |
 | **Calories / Energy**| `580k`, `580cal`, `580kcal`, `cal: 580`, `calories: 580` |
-| **Fiber** | `9fib`, `9g fiber`, `fiber: 9g` |
-| **Sugar** | `5sug`, `5g sugar`, `sugar: 5g` |
-| **Sodium** | `500mg sod`, `sodium: 0.5g` |
+| **Any other nutrient** | `caffeine: 95mg`, `95mg caffeine`, `caffeine 95mg`, `vitamin c: 60mg` |
+
+The four macros above are the only ones with single-letter shorthand, and the only ones that
+may be written without a unit (grams, or kcal for calories). Every other nutrient is written
+by name — 39 nutrients cannot each own a letter, since `c` alone could mean carbs, calcium,
+cholesterol, chloride, chromium or copper — and **requires an explicit unit** (`g`, `mg` or
+`µg`/`mcg`). A bare number is rejected rather than guessed, because assuming milligrams where
+grams were meant is a 1000x error. Run `nutrilog nutrients` to list every name.
 
 ---
 
@@ -114,6 +122,12 @@ nutrilog log "Grilled Barramundi & Veggies" \
   --fat 14 \
   --carbs 12 \
   --meal lunch
+
+# Anything beyond the four macros uses -n/--nutrient, which is repeatable
+nutrilog log "Multivitamin" -n "vitamin c=60mg" -n "vitamin b12=2.4µg" -n "zinc=10mg"
+
+# List every nutrient that can be logged
+nutrilog nutrients
 
 # Dry run (preview payload without sending)
 nutrilog log "35p 450k Protein Shake" --dry-run

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+import re
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
+
+from nutrilog.units import WeightUnit
 
 
 class MealType(str, Enum):
@@ -39,27 +42,82 @@ class MealType(str, Enum):
 
 
 class NutrientType(str, Enum):
-    """Subset of the Google Health API v4 `Nutrient` enum that Nutrilog records.
+    """The Google Health API v4 `Nutrient` enum.
 
-    Values must match the API enum exactly; anything else is rejected with a 400.
-    Note the API has no aggregate fat or carbohydrate nutrient: those totals live in
-    the dedicated `nutritionLog.totalFat` / `nutritionLog.totalCarbohydrate` fields.
+    Complete rather than a curated subset: the API treats every nutrient identically
+    (a name plus a weight in grams), so listing them all means logging caffeine or a
+    vitamin needs no new code. Values must match the API exactly or it returns a 400.
+    Aggregate fat and carbohydrate are absent by design -- those totals live in the
+    dedicated `nutritionLog.totalFat` / `nutritionLog.totalCarbohydrate` fields.
     """
 
-    PROTEIN = "PROTEIN"
-    CARBOHYDRATES = "CARBOHYDRATES"
-    DIETARY_FIBER = "DIETARY_FIBER"
-    SUGAR = "SUGAR"
-    SODIUM = "SODIUM"
-    POTASSIUM = "POTASSIUM"
+    BIOTIN = "BIOTIN"
+    CAFFEINE = "CAFFEINE"
     CALCIUM = "CALCIUM"
-    IRON = "IRON"
-    SATURATED_FAT = "SATURATED_FAT"
+    CARBOHYDRATES = "CARBOHYDRATES"
+    CHLORIDE = "CHLORIDE"
     CHOLESTEROL = "CHOLESTEROL"
+    CHROMIUM = "CHROMIUM"
+    COPPER = "COPPER"
+    DIETARY_FIBER = "DIETARY_FIBER"
+    FOLATE = "FOLATE"
+    FOLIC_ACID = "FOLIC_ACID"
+    IODINE = "IODINE"
+    IRON = "IRON"
+    MAGNESIUM = "MAGNESIUM"
+    MANGANESE = "MANGANESE"
+    MOLYBDENUM = "MOLYBDENUM"
+    MONOUNSATURATED_FAT = "MONOUNSATURATED_FAT"
+    NIACIN = "NIACIN"
+    PANTOTHENIC_ACID = "PANTOTHENIC_ACID"
+    PHOSPHORUS = "PHOSPHORUS"
+    POLYUNSATURATED_FAT = "POLYUNSATURATED_FAT"
+    POTASSIUM = "POTASSIUM"
+    PROTEIN = "PROTEIN"
+    RIBOFLAVIN = "RIBOFLAVIN"
+    SATURATED_FAT = "SATURATED_FAT"
+    SELENIUM = "SELENIUM"
+    SODIUM = "SODIUM"
+    SUGAR = "SUGAR"
+    THIAMIN = "THIAMIN"
+    TRANS_FAT = "TRANS_FAT"
+    UNSATURATED_FAT = "UNSATURATED_FAT"
+    VITAMIN_A = "VITAMIN_A"
+    VITAMIN_B12 = "VITAMIN_B12"
+    VITAMIN_B6 = "VITAMIN_B6"
+    VITAMIN_C = "VITAMIN_C"
+    VITAMIN_D = "VITAMIN_D"
+    VITAMIN_E = "VITAMIN_E"
+    VITAMIN_K = "VITAMIN_K"
+    ZINC = "ZINC"
+
+    @classmethod
+    def from_string(cls, val: str) -> Optional[NutrientType]:
+        """Resolve a written nutrient name, or None if it names no known nutrient."""
+        normalised = re.sub(r"[\s\-]+", "_", val.strip().upper())
+        if normalised in cls.__members__:
+            return cls[normalised]
+        return NUTRIENT_ALIASES.get(normalised)
+
+
+# Only for names whose API spelling nobody would write by hand. Deliberately excludes
+# "salt", which is not sodium: 1g of salt is roughly 400mg of sodium.
+NUTRIENT_ALIASES = {
+    "FIBER": NutrientType.DIETARY_FIBER,
+    "FIBERS": NutrientType.DIETARY_FIBER,
+    "FIBRE": NutrientType.DIETARY_FIBER,
+    "FIBRES": NutrientType.DIETARY_FIBER,
+    "SUGARS": NutrientType.SUGAR,
+    "CARB": NutrientType.CARBOHYDRATES,
+    "CARBS": NutrientType.CARBOHYDRATES,
+    "CARBOHYDRATE": NutrientType.CARBOHYDRATES,
+}
 
 
 class GramsQuantity(BaseModel):
     grams: float = 0.0
+    # The API echoes this back so clients can show "95mg" instead of "0.095g".
+    userProvidedUnit: Optional[WeightUnit] = None
 
 
 class Energy(BaseModel):
@@ -145,9 +203,9 @@ class MealLog(BaseModel):
 
     @property
     def protein_g(self) -> float:
-        return self._nutrient_grams(NutrientType.PROTEIN)
+        return self.nutrient_grams(NutrientType.PROTEIN)
 
-    def _nutrient_grams(self, nutrient: NutrientType) -> float:
+    def nutrient_grams(self, nutrient: NutrientType) -> float:
         """Grams recorded for a nutrient, or 0.0 when it was never logged."""
         for n in self.nutrients:
             if n.nutrient.upper() == nutrient.value:
@@ -158,41 +216,23 @@ class MealLog(BaseModel):
     def carbs_g(self) -> float:
         if self.totalCarbohydrate.grams:
             return self.totalCarbohydrate.grams
-        return self._nutrient_grams(NutrientType.CARBOHYDRATES)
+        return self.nutrient_grams(NutrientType.CARBOHYDRATES)
 
     @property
     def fat_g(self) -> float:
         # No fallback: the API has no aggregate fat nutrient, so totalFat is the only source.
         return self.totalFat.grams
 
-    @property
-    def fiber_g(self) -> float:
-        return self._nutrient_grams(NutrientType.DIETARY_FIBER)
-
-    @property
-    def sugar_g(self) -> float:
-        return self._nutrient_grams(NutrientType.SUGAR)
-
-    @property
-    def saturated_fat_g(self) -> float:
-        return self._nutrient_grams(NutrientType.SATURATED_FAT)
-
-    @property
-    def sodium_mg(self) -> float:
-        # The API stores sodium in grams; labels state it in milligrams.
-        return round(self._nutrient_grams(NutrientType.SODIUM) * 1000.0, 3)
-
     def to_api_payload(self) -> dict[str, Any]:
         """Convert to Google Health API v4 nutritionLog dataPoint format."""
         nutrients_list = []
         for n in self.nutrients:
-            nutrients_list.append(
-                {
-                    "nutrient": n.nutrient,
-                    # 4dp, not 2: sodium is sub-gram, so 2dp would quantize 242mg to 240mg.
-                    "quantity": {"grams": round(n.quantity.grams, 4)},
-                }
-            )
+            # 9dp, not 2: a 2.4µg vitamin is 0.0000024g, and anything coarser rounds the
+            # smallest nutrients away entirely. Nanograms are the API's finest unit.
+            quantity: dict[str, Any] = {"grams": round(n.quantity.grams, 9)}
+            if n.quantity.userProvidedUnit is not None:
+                quantity["userProvidedUnit"] = n.quantity.userProvidedUnit.value
+            nutrients_list.append({"nutrient": n.nutrient, "quantity": quantity})
 
         # Ensure protein is recorded in nutrients list
         has_protein = any(n.nutrient.upper() == NutrientType.PROTEIN.value for n in self.nutrients)
@@ -263,10 +303,14 @@ class MealLog(BaseModel):
         raw_nutrients = log_data.get("nutrients", [])
         nutrients = []
         for n in raw_nutrients:
+            quantity_data = n.get("quantity", {})
             nutrients.append(
                 NutrientEntry(
                     nutrient=n.get("nutrient", ""),
-                    quantity=GramsQuantity(grams=float(n.get("quantity", {}).get("grams", 0.0))),
+                    quantity=GramsQuantity(
+                        grams=float(quantity_data.get("grams", 0.0)),
+                        userProvidedUnit=quantity_data.get("userProvidedUnit"),
+                    ),
                 )
             )
 
@@ -304,7 +348,8 @@ class MacroSummary(BaseModel):
     total_protein: float = 0.0
     total_carbs: float = 0.0
     total_fat: float = 0.0
-    total_fiber: float = 0.0
+    # Grams per nutrient name, for everything without a dedicated total above.
+    nutrient_totals: dict[str, float] = Field(default_factory=dict)
     meals: List[MealLog] = Field(default_factory=list)
 
     @property
@@ -317,7 +362,14 @@ class MacroSummary(BaseModel):
         self.total_protein += meal.protein_g
         self.total_carbs += meal.carbs_g
         self.total_fat += meal.fat_g
-        self.total_fiber += meal.fiber_g
+
+        # Protein and carbohydrates are excluded: they are already totalled above, and
+        # repeating them here would show the same grams twice.
+        for entry in meal.nutrients:
+            name = entry.nutrient.upper()
+            if name in (NutrientType.PROTEIN.value, NutrientType.CARBOHYDRATES.value):
+                continue
+            self.nutrient_totals[name] = self.nutrient_totals.get(name, 0.0) + entry.quantity.grams
 
     @classmethod
     def from_meals(cls, meals: List[MealLog]) -> MacroSummary:

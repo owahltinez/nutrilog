@@ -28,7 +28,14 @@ nutrilog log "p30 f10 c45 390cal Chicken Burrito Bowl"
 
 # Automatic calorie calculation if calories are omitted
 nutrilog log "30p 40c 10f Oatmeal"
+
+# Any of the API's 39 nutrients, by name with an explicit unit
+nutrilog log "Oat Cortado 0.8p 40k caffeine: 63mg"
 ```
+
+Only protein, fat, carbs and calories have single-letter shorthand and may be written
+without a unit. Every other nutrient is written by name and **requires a unit** (`g`, `mg`,
+`µg`); a bare number is an error rather than a guess. `nutrilog nutrients` lists every name.
 
 ### Flag-Based Logging
 ```bash
@@ -38,6 +45,9 @@ nutrilog log "Grilled Barramundi & Veggies" \
   --fat 14 \
   --carbs 12 \
   --meal lunch
+
+# -n/--nutrient covers everything else and is repeatable
+nutrilog log "Multivitamin" -n "vitamin c=60mg" -n "zinc=10mg"
 ```
 
 ### Dry Run & JSON Output

@@ -240,18 +240,22 @@ def _fiber_meal(point_id: str) -> MealLog:
 
 
 def test_cli_log_fiber_uses_dietary_fiber_enum(temp_config_dir: Path):
-    """`--fiber` must serialize to the only fibre value the v4 API accepts."""
+    """Everyday "fiber" must serialize to the only fibre value the v4 API accepts."""
     with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
         result = runner.invoke(
             app,
-            ["log", "Test", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3", "--fiber", "1.9"],
+            ["log", "Test", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3", "-n", "fiber=1.9g"],
         )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     sent = mock_log.call_args.args[0].to_api_payload()["nutritionLog"]["nutrients"]
-    assert {"nutrient": "DIETARY_FIBER", "quantity": {"grams": 1.9}} in sent
+    assert {
+        "nutrient": "DIETARY_FIBER",
+        "quantity": {"grams": 1.9, "userProvidedUnit": "GRAM"},
+    } in sent
 
 
-def test_cli_history_shows_fiber(temp_config_dir: Path):
+def test_cli_history_totals_show_nutrients_beyond_the_macros(temp_config_dir: Path):
+    """The table keeps four macro columns; the tail is summarised underneath it."""
     with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[_fiber_meal("meal-fib")]):
         result = runner.invoke(app, ["history"])
         assert result.exit_code == 0
@@ -264,8 +268,8 @@ def test_cli_history_json_includes_fiber(temp_config_dir: Path):
         result = runner.invoke(app, ["history", "--json"])
         assert result.exit_code == 0
         parsed = json.loads(result.stdout)
-        assert parsed["summary"]["total_fiber"] == 1.9
-        assert parsed["meals"][0]["fiber_g"] == 1.9
+        assert parsed["summary"]["nutrient_totals"]["DIETARY_FIBER"] == 1.9
+        assert parsed["meals"][0]["nutrients"]["DIETARY_FIBER"] == 1.9
 
 
 def _sent_nutrients(mock_log) -> list[dict]:
@@ -273,30 +277,31 @@ def _sent_nutrients(mock_log) -> list[dict]:
     return mock_log.call_args.args[0].to_api_payload()["nutritionLog"]["nutrients"]
 
 
-def test_cli_log_sugar_saturated_fat_and_sodium_flags(temp_config_dir: Path):
-    """Sugar, saturated fat and sodium must be loggable via flags."""
+def test_cli_log_several_nutrients_via_flags(temp_config_dir: Path):
+    """One repeatable flag covers what four dedicated ones used to."""
     with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
         result = runner.invoke(
             app,
             ["log", "Musashi bar", "-p", "20", "-k", "236", "-c", "7.7", "-f", "8.3",
-             "--fiber", "1.9", "--sugar", "3.7", "--saturated-fat", "4.4", "--sodium", "242"],
+             "-n", "fiber=1.9g", "-n", "sugar=3.7g", "-n", "saturated fat=4.4g",
+             "-n", "sodium=242mg"],
         )
     assert result.exit_code == 0, result.output
-    sent = _sent_nutrients(mock_log)
-    assert {"nutrient": "SUGAR", "quantity": {"grams": 3.7}} in sent
-    assert {"nutrient": "SATURATED_FAT", "quantity": {"grams": 4.4}} in sent
-    # --sodium is milligrams (as labels state it); the API field is grams.
-    assert {"nutrient": "SODIUM", "quantity": {"grams": 0.242}} in sent
+    sent = {e["nutrient"]: e["quantity"]["grams"] for e in _sent_nutrients(mock_log)}
+    assert sent["SUGAR"] == 3.7
+    assert sent["SATURATED_FAT"] == 4.4
+    # Sodium is written in milligrams; the API field is grams.
+    assert sent["SODIUM"] == 0.242
 
 
-def test_cli_log_shorthand_sugar_and_sodium_are_not_dropped(temp_config_dir: Path):
-    """Regression: the CLI path used to discard shorthand-parsed sugar and sodium."""
+def test_cli_log_shorthand_nutrients_are_not_dropped(temp_config_dir: Path):
+    """Regression: the CLI path used to discard shorthand-parsed nutrients."""
     with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
-        result = runner.invoke(app, ["log", "20p 236k 3.7sug 242sod Test bar"])
+        result = runner.invoke(app, ["log", "20p 236k sugar: 3.7g sodium: 242mg Test bar"])
     assert result.exit_code == 0, result.output
-    sent = _sent_nutrients(mock_log)
-    assert {"nutrient": "SUGAR", "quantity": {"grams": 3.7}} in sent
-    assert {"nutrient": "SODIUM", "quantity": {"grams": 0.242}} in sent
+    sent = {e["nutrient"]: e["quantity"]["grams"] for e in _sent_nutrients(mock_log)}
+    assert sent["SUGAR"] == 3.7
+    assert sent["SODIUM"] == 0.242
 
 
 def test_cli_history_json_includes_new_nutrients(temp_config_dir: Path):
@@ -320,7 +325,122 @@ def test_cli_history_json_includes_new_nutrients(temp_config_dir: Path):
         result = runner.invoke(app, ["history", "--json"])
     assert result.exit_code == 0, result.output
     entry = json.loads(result.stdout)["meals"][0]
-    assert entry["fiber_g"] == 1.9
-    assert entry["sugar_g"] == 3.7
-    assert entry["saturated_fat_g"] == 4.4
-    assert entry["sodium_mg"] == 242.0
+    assert entry["nutrients"] == {
+        "DIETARY_FIBER": 1.9,
+        "SUGAR": 3.7,
+        "SATURATED_FAT": 4.4,
+        "SODIUM": 0.242,
+    }
+
+
+def test_cli_log_arbitrary_nutrient_flag(temp_config_dir: Path):
+    """Caffeine is loggable without a dedicated flag."""
+    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+        result = runner.invoke(app, ["log", "Oat Cortado", "-n", "caffeine=95mg"])
+
+    assert result.exit_code == 0, result.output
+    assert {
+        "nutrient": "CAFFEINE",
+        "quantity": {"grams": 0.095, "userProvidedUnit": "MILLIGRAM"},
+    } in _sent_nutrients(mock_log)
+
+
+def test_cli_nutrient_flag_is_repeatable(temp_config_dir: Path):
+    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m) as mock_log:
+        result = runner.invoke(
+            app,
+            ["log", "Supplement", "-n", "magnesium=60mg", "-n", "vitamin b12=2.4µg"],
+        )
+
+    assert result.exit_code == 0, result.output
+    sent = {e["nutrient"] for e in _sent_nutrients(mock_log)}
+    assert {"MAGNESIUM", "VITAMIN_B12"} <= sent
+
+
+def test_cli_nutrient_flag_rejects_unknown_nutrient(temp_config_dir: Path):
+    result = runner.invoke(app, ["log", "Snack", "-n", "unobtainium=5g"])
+
+    assert result.exit_code == 1
+    assert "unobtainium" in result.output
+
+
+def test_cli_nutrient_flag_rejects_missing_unit(temp_config_dir: Path):
+    result = runner.invoke(app, ["log", "Snack", "-n", "caffeine=95"])
+
+    assert result.exit_code == 1
+    assert "unit" in result.output.lower()
+
+
+def test_cli_nutrient_flag_rejects_malformed_pair(temp_config_dir: Path):
+    result = runner.invoke(app, ["log", "Snack", "-n", "caffeine"])
+
+    assert result.exit_code == 1
+    assert "caffeine" in result.output
+
+
+def test_cli_per_nutrient_flags_are_gone(temp_config_dir: Path):
+    """Replaced by -n; a stale flag must fail loudly rather than be ignored."""
+    for flag in ("--sodium", "--sugar", "--saturated-fat", "--fiber"):
+        result = runner.invoke(app, ["log", "Snack", flag, "5"])
+        assert result.exit_code != 0, f"{flag} still accepted"
+
+
+def test_cli_log_reports_shorthand_unit_errors(temp_config_dir: Path):
+    """A nutrient without a unit stops the log instead of guessing."""
+    result = runner.invoke(app, ["log", "Eggs sodium: 450"])
+
+    assert result.exit_code == 1
+    assert "unit" in result.output.lower()
+
+
+def test_cli_log_warns_about_unclaimed_weights(temp_config_dir: Path):
+    with patch("nutrilog.cli.GoogleHealthClient.log_meal", side_effect=lambda m: m):
+        result = runner.invoke(app, ["log", "Eggs 450mg"])
+
+    assert result.exit_code == 0, result.output
+    assert "450mg" in result.output
+
+
+def test_cli_json_output_lists_nutrients_generically(temp_config_dir: Path):
+    result = runner.invoke(
+        app, ["log", "Oat Cortado", "-n", "caffeine=95mg", "--dry-run", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["nutrients"]["CAFFEINE"] == 0.095
+
+
+def test_cli_history_json_totals_nutrients_generically(temp_config_dir: Path):
+    meal = MealLog(
+        foodDisplayName="Oat Cortado",
+        mealType=MealType.BREAKFAST,
+        interval=TimeInterval(startTime="2026-08-19T09:30:00Z", endTime="2026-08-19T09:31:00Z"),
+        energy=Energy(kcal=35),
+        nutrients=[
+            NutrientEntry(nutrient="CAFFEINE", quantity=GramsQuantity(grams=0.095)),
+        ],
+    )
+    with patch("nutrilog.cli.GoogleHealthClient.list_meals", return_value=[meal]):
+        result = runner.invoke(app, ["history", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["summary"]["nutrient_totals"]["CAFFEINE"] == 0.095
+    assert payload["meals"][0]["nutrients"]["CAFFEINE"] == 0.095
+
+
+def test_cli_nutrients_command_lists_loggable_names(temp_config_dir: Path):
+    """With names replacing flags, the list has to be discoverable from the CLI."""
+    result = runner.invoke(app, ["nutrients"])
+
+    assert result.exit_code == 0, result.output
+    assert "caffeine" in result.output.lower()
+    assert "vitamin b12" in result.output.lower()
+
+
+def test_cli_nutrients_command_shows_the_macro_shorthand(temp_config_dir: Path):
+    result = runner.invoke(app, ["nutrients"])
+
+    assert "protein" in result.output.lower()
+    assert "-p" in result.output
