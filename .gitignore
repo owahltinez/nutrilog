@@ -24,6 +24,7 @@ ENV/
 htmlcov/
 
 # Local credentials & secrets
+.env
 tokens.json
 credentials.json
 client_secrets*.json
