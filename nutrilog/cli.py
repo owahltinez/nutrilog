@@ -160,11 +160,32 @@ def _nutrient_grams(meal: MealLog) -> dict[str, float]:
     }
 
 
-def _meal_json(meal: MealLog) -> dict[str, object]:
+def _meal_time(meal: MealLog, tz: tzinfo) -> str:
+    """The meal's start time written in `tz`, as an ISO 8601 instant.
+
+    The stored string is whatever produced it: a freshly built meal carries
+    the local offset it was parsed from, one read back from the API carries
+    UTC. Normalising here is what keeps a payload to a single convention, so
+    a reader can compare a meal against the window it sits inside without
+    converting anything. The instant never changes -- only how it is written.
+    """
+    try:
+        return (
+            date_parser_iso(meal.interval.startTime).astimezone(tz).isoformat()
+        )
+    except (ValueError, TypeError):
+        # An unparseable timestamp is passed through rather than dropped: a
+        # wrong-looking time is debuggable, a missing one is not.
+        return meal.interval.startTime
+
+
+def _meal_json(
+    meal: MealLog, tz: Optional[tzinfo] = None
+) -> dict[str, object]:
     """Render one meal consistently for machine-readable output."""
     return {
         "id": meal.id,
-        "time": meal.interval.startTime,
+        "time": _meal_time(meal, tz or get_user_timezone()),
         "meal_type": meal.mealType.value,
         "name": meal.foodDisplayName,
         "protein_g": meal.protein_g,
@@ -422,20 +443,7 @@ def history_command(
                 "nutrient_totals": summary.nutrient_totals,
                 "meal_count": summary.meal_count,
             },
-            "meals": [
-                {
-                    "id": m.id,
-                    "time": m.interval.startTime,
-                    "meal_type": m.mealType.value,
-                    "name": m.foodDisplayName,
-                    "protein_g": m.protein_g,
-                    "calories_kcal": m.calories_kcal,
-                    "carbs_g": m.carbs_g,
-                    "fat_g": m.fat_g,
-                    "nutrients": _nutrient_grams(m),
-                }
-                for m in meals
-            ],
+            "meals": [_meal_json(m, active_tz) for m in meals],
         }
         emit(payload, json_output=True, human=lambda _: [])
         return

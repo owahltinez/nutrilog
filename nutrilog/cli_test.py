@@ -779,3 +779,67 @@ def test_cli_nutrients_command_shows_the_macro_shorthand(
 
     assert "protein" in result.output.lower()
     assert "-p" in result.output
+
+
+def _late_evening_meal() -> MealLog:
+    """A meal at 10pm Sydney, which is the *previous* day in UTC.
+
+    12:00Z on the 20th is 22:00+10:00 on the 20th. Any renderer that leaks
+    UTC into a local-day view puts this meal on the wrong calendar day.
+    """
+    return MealLog(
+        id="dp-tz",
+        foodDisplayName="Orange Juice",
+        mealType=MealType.SNACK,
+        interval=TimeInterval(
+            startTime="2026-08-20T12:00:00Z", endTime="2026-08-20T12:00:00Z"
+        ),
+        energy=Energy(kcal=45),
+    )
+
+
+def test_history_json_reports_meal_times_in_the_configured_zone(
+    temp_config_dir: Path,
+) -> None:
+    """One payload, one convention: meals must match start_time and end_time.
+
+    Emitting the window in local time and the meals in UTC invites a reader
+    to compare them directly and land on the wrong day.
+    """
+    runner.invoke(app, ["config", "set", "--timezone", "Australia/Sydney"])
+
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals",
+        return_value=[_late_evening_meal()],
+    ):
+        parsed = json_data(runner.invoke(app, ["history", "--json"]))
+
+    time = parsed["meals"][0]["time"]
+    assert time == "2026-08-20T22:00:00+10:00"
+    # The instant is unchanged; only how it is written.
+    assert datetime.fromisoformat(time) == datetime.fromisoformat(
+        "2026-08-20T12:00:00+00:00"
+    )
+    # Same offset as the window it sits inside.
+    assert time[-6:] == parsed["start_time"][-6:]
+
+
+def test_log_and_history_agree_on_timestamp_format(
+    temp_config_dir: Path,
+) -> None:
+    """A meal must not change shape between being logged and being read."""
+    runner.invoke(app, ["config", "set", "--timezone", "Australia/Sydney"])
+
+    logged = json_data(
+        runner.invoke(
+            app,
+            ["log", "probe", "-k", "1", "-t", "10pm", "--dry-run", "--json"],
+        )
+    )
+    with patch(
+        "nutrilog.cli.GoogleHealthClient.list_meals",
+        return_value=[_late_evening_meal()],
+    ):
+        read = json_data(runner.invoke(app, ["history", "--json"]))
+
+    assert logged["time"][-6:] == read["meals"][0]["time"][-6:]
