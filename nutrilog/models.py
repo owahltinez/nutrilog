@@ -134,10 +134,15 @@ class Energy(BaseModel):
 
 
 class Serving(BaseModel):
-    """Serving size information."""
+    """Serving size information.
+
+    The API calls the unit `foodMeasurementUnitDisplayName` on the wire and
+    has no `unit` field at all, so writing one is rejected outright. It is
+    optional: an unrecorded unit stays unrecorded rather than being invented.
+    """
 
     amount: float = 1.0
-    unit: str = "serving"
+    unit: Optional[str] = None
 
 
 class NutrientEntry(BaseModel):
@@ -291,10 +296,10 @@ class MealLog(BaseModel):
             }
         }
         if self.serving:
-            payload["nutritionLog"]["serving"] = {
-                "amount": self.serving.amount,
-                "unit": self.serving.unit,
-            }
+            serving: dict[str, Any] = {"amount": self.serving.amount}
+            if self.serving.unit is not None:
+                serving["foodMeasurementUnitDisplayName"] = self.serving.unit
+            payload["nutritionLog"]["serving"] = serving
         return payload
 
     @classmethod
@@ -345,9 +350,10 @@ class MealLog(BaseModel):
         serving_data = log_data.get("serving")
         serving = None
         if serving_data:
+            unit = serving_data.get("foodMeasurementUnitDisplayName")
             serving = Serving(
                 amount=float(serving_data.get("amount", 1.0)),
-                unit=str(serving_data.get("unit", "serving")),
+                unit=str(unit) if unit is not None else None,
             )
 
         raw_meal_type = log_data.get(

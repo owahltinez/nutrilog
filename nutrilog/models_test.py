@@ -80,7 +80,8 @@ def test_meal_log_payload_serialization():
     assert log["energy"]["kcal"] == 580.0
     assert log["totalCarbohydrate"]["grams"] == 54.0
     assert log["totalFat"]["grams"] == 18.0
-    assert log["serving"]["unit"] == "bowl"
+    assert log["serving"]["foodMeasurementUnitDisplayName"] == "bowl"
+    assert "unit" not in log["serving"]
 
     # Test round trip parsing
     parsed_meal = MealLog.from_api_payload(payload, point_id="point-123")
@@ -549,3 +550,54 @@ def test_payload_keeps_microgram_precision():
     entry = meal.to_api_payload()["nutritionLog"]["nutrients"][0]
 
     assert entry["quantity"]["grams"] == pytest.approx(0.0000024)
+
+
+def test_serving_uses_the_api_field_name_in_both_directions():
+    """The API names the unit foodMeasurementUnitDisplayName.
+
+    Writing `unit` is rejected outright, and reading `unit` never matches, so
+    a real serving silently lost its unit on the way in.
+    """
+    api_payload = {
+        "nutritionLog": {
+            "foodDisplayName": "Soft cheese",
+            "mealType": "SNACK",
+            "energy": {"kcal": 95.5},
+            "totalCarbohydrate": {"grams": 0.5},
+            "totalFat": {"grams": 7.0},
+            "nutrients": [],
+            "serving": {
+                "amount": 50,
+                "foodMeasurementUnitDisplayName": "gram",
+            },
+        }
+    }
+
+    parsed = MealLog.from_api_payload(api_payload)
+
+    assert parsed.serving is not None
+    assert parsed.serving.amount == 50
+    assert parsed.serving.unit == "gram"
+
+    # What goes back out must be what the API accepts.
+    serving = parsed.to_api_payload()["nutritionLog"]["serving"]
+    assert serving == {"amount": 50, "foodMeasurementUnitDisplayName": "gram"}
+
+
+def test_a_serving_without_a_unit_does_not_invent_one():
+    """An absent unit is absent, not the word "serving"."""
+    api_payload = {
+        "nutritionLog": {
+            "foodDisplayName": "Soft cheese",
+            "mealType": "SNACK",
+            "energy": {"kcal": 95.5},
+            "nutrients": [],
+            "serving": {"amount": 2},
+        }
+    }
+
+    parsed = MealLog.from_api_payload(api_payload)
+
+    assert parsed.serving is not None
+    assert parsed.serving.unit is None
+    assert parsed.to_api_payload()["nutritionLog"]["serving"] == {"amount": 2}

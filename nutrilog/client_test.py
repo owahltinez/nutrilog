@@ -150,7 +150,10 @@ def test_get_meal_by_point_id(client):
                     },
                 }
             ],
-            "serving": {"amount": 1, "unit": "meal"},
+            "serving": {
+                "amount": 1,
+                "foodMeasurementUnitDisplayName": "meal",
+            },
         },
     }
     respx.get(
