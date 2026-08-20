@@ -225,14 +225,14 @@ Nutrilog includes a packaged **Agent Skill** (`SKILL.md`) that allows AI coding 
 # Check skill status across detected AI tools
 nutrilog skill status
 
-# Install into default shared location (~/.agents/skills)
+# Install everywhere it is wanted: ~/.agents/skills plus every detected tool
 nutrilog skill install
 
-# Install into all detected agent tool directories
-nutrilog skill install --all
+# Install into just one directory
+nutrilog skill install --to ~/.claude/skills
 
 # Symlink instead of copying (for live package updates)
-nutrilog skill install --all --link
+nutrilog skill install --link
 ```
 
 ---
