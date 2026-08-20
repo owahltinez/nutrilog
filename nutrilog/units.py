@@ -75,7 +75,9 @@ def resolve_unit(unit: Optional[str]) -> WeightUnit:
     return resolved
 
 
-def parse_weight(value: float, unit: Optional[str]) -> Tuple[float, WeightUnit]:
+def parse_weight(
+    value: float, unit: Optional[str]
+) -> Tuple[float, WeightUnit]:
     """Convert a written quantity into grams, keeping the original unit."""
     resolved = resolve_unit(unit)
     return value * _GRAMS_PER_UNIT[resolved], resolved

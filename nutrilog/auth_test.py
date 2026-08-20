@@ -207,7 +207,10 @@ def test_login_remote(temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
     ) as mock_flow_init:
         mock_flow = MagicMock()
         mock_flow.credentials = mock_creds
-        mock_flow.authorization_url.return_value = ("https://auth.url", "state")
+        mock_flow.authorization_url.return_value = (
+            "https://auth.url",
+            "state",
+        )
         mock_flow_init.return_value = mock_flow
 
         creds = login_remote(

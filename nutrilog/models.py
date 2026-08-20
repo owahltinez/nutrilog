@@ -248,7 +248,9 @@ class MealLog(BaseModel):
             # 9dp preserves microgram precision (e.g. 2.4µg = 0.0000024g).
             quantity: dict[str, Any] = {"grams": round(n.quantity.grams, 9)}
             if n.quantity.userProvidedUnit is not None:
-                quantity["userProvidedUnit"] = n.quantity.userProvidedUnit.value
+                quantity["userProvidedUnit"] = (
+                    n.quantity.userProvidedUnit.value
+                )
             nutrients_list.append(
                 {"nutrient": n.nutrient, "quantity": quantity}
             )

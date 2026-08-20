@@ -205,9 +205,9 @@ class ParsedMacros:
 
 def _inside_parentheses(text: str, index: int) -> bool:
     """Whether index falls between an unclosed "(" and its ")"."""
-    return "(" in text[:index] and text[:index].rfind("(") > text[:index].rfind(
-        ")"
-    )
+    return "(" in text[:index] and text[:index].rfind("(") > text[
+        :index
+    ].rfind(")")
 
 
 def _quantity(

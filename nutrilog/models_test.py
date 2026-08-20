@@ -105,7 +105,9 @@ def test_macro_summary():
         totalCarbohydrate=GramsQuantity(grams=30),
         totalFat=GramsQuantity(grams=10),
         nutrients=[
-            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=25)),
+            NutrientEntry(
+                nutrient="PROTEIN", quantity=GramsQuantity(grams=25)
+            ),
             NutrientEntry(
                 nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=5)
             ),
@@ -120,7 +122,9 @@ def test_macro_summary():
         totalCarbohydrate=GramsQuantity(grams=50),
         totalFat=GramsQuantity(grams=20),
         nutrients=[
-            NutrientEntry(nutrient="PROTEIN", quantity=GramsQuantity(grams=35)),
+            NutrientEntry(
+                nutrient="PROTEIN", quantity=GramsQuantity(grams=35)
+            ),
             NutrientEntry(
                 nutrient="DIETARY_FIBER", quantity=GramsQuantity(grams=4)
             ),
@@ -462,7 +466,9 @@ def test_payload_round_trips_arbitrary_nutrients_with_their_unit():
 
     parsed = MealLog.from_api_payload(payload)
     assert parsed.nutrient_grams(NutrientType.CAFFEINE) == 0.095
-    assert parsed.nutrients[0].quantity.userProvidedUnit == WeightUnit.MILLIGRAM
+    assert (
+        parsed.nutrients[0].quantity.userProvidedUnit == WeightUnit.MILLIGRAM
+    )
 
 
 def test_payload_omits_user_provided_unit_when_unknown():
