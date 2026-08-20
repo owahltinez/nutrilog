@@ -21,7 +21,7 @@ from nutrilog.models import (
     Serving,
     TimeInterval,
 )
-from nutrilog.storage import ENV_CONFIG_DIR
+from nutrilog.storage import ENV_CONFIG_DIR, set_user_timezone
 
 runner = CliRunner()
 
@@ -37,6 +37,10 @@ def json_data(result):
 def temp_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     custom_dir = tmp_path / "nutrilog_cli_test"
     monkeypatch.setenv(ENV_CONFIG_DIR, str(custom_dir))
+    # Pin the zone as well as the directory. Without a configured timezone
+    # the CLI falls back to the machine's, so any test asserting a rendered
+    # timestamp would pass in Sydney and fail on a UTC runner.
+    set_user_timezone("Australia/Sydney")
     return custom_dir
 
 
@@ -806,8 +810,6 @@ def test_history_json_reports_meal_times_in_the_configured_zone(
     Emitting the window in local time and the meals in UTC invites a reader
     to compare them directly and land on the wrong day.
     """
-    runner.invoke(app, ["config", "set", "--timezone", "Australia/Sydney"])
-
     with patch(
         "nutrilog.cli.GoogleHealthClient.list_meals",
         return_value=[_late_evening_meal()],
@@ -828,8 +830,6 @@ def test_log_and_history_agree_on_timestamp_format(
     temp_config_dir: Path,
 ) -> None:
     """A meal must not change shape between being logged and being read."""
-    runner.invoke(app, ["config", "set", "--timezone", "Australia/Sydney"])
-
     logged = json_data(
         runner.invoke(
             app,
