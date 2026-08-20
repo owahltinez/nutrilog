@@ -1,3 +1,5 @@
 """Nutrilog - Google Health Nutrition Logging CLI."""
 
-__version__ = "0.2.5"
+from importlib.metadata import version
+
+__version__ = version("nutrilog")

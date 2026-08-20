@@ -1,14 +1,11 @@
 ---
 name: nutrilog
-description: Fast, privacy-first CLI tool for logging meals, macronutrients, and calories directly to the Google Health API (health.googleapis.com/v4) from any terminal. Syncs live with Google Health, Fitbit, and Pixel Watch. Use when the user asks to log meals, track macros or calories, view meal history, check daily nutrition summaries, or manage Google Health meal logs.
-license: MIT
+description: Fast, privacy-first CLI tool for logging meals and available nutrient data directly to Google Health. Use when the user asks to log meals, track nutrients, macros, or calories, view meal history, check daily nutrition summaries, or manage Google Health meal logs.
 ---
 
 # nutrilog
 
 A fast, privacy-first CLI tool for logging meals, macronutrients, and calories directly to the **Google Health API (`health.googleapis.com/v4`)** from any terminal.
-
-Data written by `nutrilog` syncs natively to the user's **Google Health app**, **Fitbit**, and **Pixel Watch**.
 
 ---
 
@@ -32,6 +29,19 @@ nutrilog log "30p 40c 10f Oatmeal"
 # Any of the API's 39 nutrients, by name with an explicit unit
 nutrilog log "Oat Cortado 0.8p 40k caffeine: 63mg"
 ```
+
+### Recording Available Nutrients
+
+When logging, include every supported nutrient value explicitly available in the user's
+message or a concrete source such as a nutrition label, recipe nutrition panel, or tool
+output. Treat the `p`/`f`/`c`/`k` shorthand as an input convenience, not a checklist: when
+values such as fiber and sodium are available with units, record them alongside the macros
+and calories.
+
+Do not estimate missing nutrients from a food description, typical values, or general
+knowledge, and do not record an absent nutrient as zero. If a nutrient value or its unit is
+not available, omit it; ask the user only when that missing information is important to the
+request.
 
 ### Choosing Entry Granularity
 
