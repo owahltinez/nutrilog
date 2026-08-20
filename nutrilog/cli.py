@@ -1,4 +1,4 @@
-"""Typer and Rich command-line interface for Nutrilog."""
+"""Click command-line interface for Nutrilog."""
 
 from __future__ import annotations
 
@@ -7,11 +7,16 @@ from datetime import datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Optional
 
-import typer
+import click
+from agentcli import (
+    JsonAwareGroup,
+    RemoteError,
+    UsageError,
+    emit,
+    json_option,
+    skill_group,
+)
 from dateutil import parser as date_parser
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
 from nutrilog import __version__, auth
 from nutrilog.client import GoogleHealthClient, GoogleHealthError
@@ -34,7 +39,6 @@ from nutrilog.parser import (
     parse_shorthand,
     parse_time_str,
 )
-from nutrilog.skill import skill_app
 from nutrilog.storage import (
     get_config_dir,
     get_configured_timezone_name,
@@ -43,26 +47,6 @@ from nutrilog.storage import (
     set_user_timezone,
 )
 from nutrilog.units import UnknownUnitError, format_grams, parse_weight
-
-app = typer.Typer(
-    name="nutrilog",
-    help=(
-        "Fast, privacy-first CLI tool for logging nutrition directly to "
-        "Google Health."
-    ),
-    no_args_is_help=True,
-)
-auth_app = typer.Typer(help="Manage OAuth 2.0 authentication and credentials.")
-config_app = typer.Typer(
-    help="Manage user preferences such as the active timezone."
-)
-
-app.add_typer(auth_app, name="auth")
-app.add_typer(config_app, name="config")
-app.add_typer(skill_app, name="skill")
-
-console = Console()
-err_console = Console(stderr=True)
 
 
 def date_parser_iso(s: str) -> datetime:
@@ -140,7 +124,9 @@ def parse_nutrient_args(
             grams, resolved = parse_weight(float(amount), unit)
         except UnknownUnitError as exc:
             raise ParseError(f"{name}: {exc}") from exc
-        parsed[nutrient] = GramsQuantity(grams=grams, userProvidedUnit=resolved)
+        parsed[nutrient] = GramsQuantity(
+            grams=grams, userProvidedUnit=resolved
+        )
     return parsed
 
 
@@ -204,15 +190,13 @@ def _render_meal_panel(
         time_display = meal.interval.startTime
 
     lines = [
-        f"[bold cyan]Food:[/bold cyan] {meal.foodDisplayName}",
-        f"[bold cyan]Meal:[/bold cyan] {meal.mealType.value.capitalize()}",
-        f"[bold cyan]Time:[/bold cyan] {time_display}",
+        f"Food: {meal.foodDisplayName}",
+        f"Meal: {meal.mealType.value.capitalize()}",
+        f"Time: {time_display}",
         (
-            f"[bold green]Protein:[/bold green] {meal.protein_g:.1f}g    "
-            f"[bold yellow]Calories:[/bold yellow] "
+            f"Protein: {meal.protein_g:.1f}g    Calories: "
             f"{meal.calories_kcal:.0f} kcal    "
-            f"[bold blue]Carbs:[/bold blue] {meal.carbs_g:.1f}g    "
-            f"[bold magenta]Fat:[/bold magenta] {meal.fat_g:.1f}g"
+            f"Carbs: {meal.carbs_g:.1f}g    Fat: {meal.fat_g:.1f}g"
         ),
     ]
     extras = _describe_nutrients(meal)
@@ -221,18 +205,11 @@ def _render_meal_panel(
             f"{name.replace('_', ' ').title()}: {value}"
             for name, value in sorted(extras.items())
         )
-        lines.append(f"[bold dim]{rendered}[/bold dim]")
+        lines.append(rendered)
     if meal.id:
-        lines.append(f"[dim]Point ID: {meal.id}[/dim]")
+        lines.append(f"Point ID: {meal.id}")
 
-    console.print(
-        Panel(
-            "\n".join(lines),
-            title=f"[bold green]✓ {title}[/bold green]",
-            expand=False,
-            border_style="green",
-        )
-    )
+    click.echo(f"{title}\n" + "\n".join(lines))
 
 
 def _log_meal_internal(
@@ -255,8 +232,7 @@ def _log_meal_internal(
     try:
         parsed = parse_shorthand(text or "", tz=active_tz)
     except ParseError as exc:
-        err_console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise typer.Exit(code=1)
+        raise UsageError(str(exc)) from exc
 
     meal_type = None
     if meal_type_str:
@@ -273,7 +249,9 @@ def _log_meal_internal(
     food_name = name or (
         parsed.name
         if parsed.name
-        else (text if text and not any([protein, calories, carbs, fat]) else "")
+        else (
+            text if text and not any([protein, calories, carbs, fat]) else ""
+        )
     )
     if not food_name and parsed.name:
         food_name = parsed.name
@@ -315,11 +293,11 @@ def _log_meal_internal(
     ).to_meal_log()
 
     for warning in parsed.warnings:
-        err_console.print(f"[yellow]Warning:[/yellow] {warning}")
+        click.echo(f"Warning: {warning}", err=True)
 
     if dry_run:
         if output_json:
-            console.print_json(data=_meal_json(meal_log))
+            emit(_meal_json(meal_log), json_output=True, human=lambda _: [])
         else:
             _render_meal_panel(
                 meal_log, title="Dry Run (Not Sent to Google Health)"
@@ -330,86 +308,65 @@ def _log_meal_internal(
     try:
         saved_meal = client.log_meal(meal_log)
         if output_json:
-            console.print_json(data=_meal_json(saved_meal))
+            emit(_meal_json(saved_meal), json_output=True, human=lambda _: [])
         else:
             _render_meal_panel(
                 saved_meal, title="Successfully Logged to Google Health"
             )
         return saved_meal
-    except GoogleHealthError as e:
-        err_console.print(f"[bold red]Error logging meal:[/bold red] {e}")
-        raise typer.Exit(code=1)
+    except GoogleHealthError as exc:
+        raise RemoteError(f"Error logging meal: {exc}") from exc
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    ctx: typer.Context,
-    version: bool = typer.Option(
-        False, "--version", "-v", help="Display Nutrilog version."
-    ),
-):
-    """Nutrilog - Fast terminal nutrition logging to Google Health."""
-    if version:
-        console.print(f"[bold green]Nutrilog[/bold green] v{__version__}")
-        raise typer.Exit()
-
+@click.group(
+    cls=JsonAwareGroup,
+    invoke_without_command=True,
+    no_args_is_help=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.version_option(__version__, "-v", "--version", prog_name="Nutrilog")
+@click.pass_context
+def app(ctx: click.Context) -> None:
+    """Fast, privacy-first nutrition logging to Google Health."""
     if ctx.invoked_subcommand is None:
-        console.print(ctx.get_help())
-        raise typer.Exit()
+        click.echo(ctx.get_help())
 
 
 @app.command("log")
+@click.argument("name_or_shorthand", required=False)
+@click.option("--protein", "-p", type=float, help="Protein in grams.")
+@click.option("--calories", "-k", type=float, help="Calories in kcal.")
+@click.option("--carbs", "-c", type=float, help="Carbohydrates in grams.")
+@click.option("--fat", "-f", type=float, help="Total fat in grams.")
+@click.option(
+    "--nutrient",
+    "-n",
+    multiple=True,
+    help="Another nutrient with a unit; repeatable (e.g. caffeine=95mg).",
+)
+@click.option(
+    "--meal", "-m", help="Meal type (breakfast, lunch, dinner, snack)."
+)
+@click.option("--time", "time_str", "-t", help="Time of meal.")
+@click.option("--dry-run", is_flag=True, help="Simulate without uploading.")
+@json_option
 def log_command(
-    name_or_shorthand: Optional[str] = typer.Argument(
-        None,
-        help=(
-            "Meal name or shorthand string (e.g. 'Grilled Salmon' or "
-            "'35p 600k Grilled Salmon')."
-        ),
-    ),
-    protein: Optional[float] = typer.Option(
-        None, "--protein", "-p", help="Protein in grams."
-    ),
-    calories: Optional[float] = typer.Option(
-        None, "--calories", "-k", help="Calories in kcal."
-    ),
-    carbs: Optional[float] = typer.Option(
-        None, "--carbs", "-c", help="Carbohydrates in grams."
-    ),
-    fat: Optional[float] = typer.Option(
-        None, "--fat", "-f", help="Total fat in grams."
-    ),
-    nutrient: Optional[list[str]] = typer.Option(
-        None,
-        "--nutrient",
-        "-n",
-        help=(
-            "Any other nutrient, with a unit; repeatable "
-            "(e.g. -n caffeine=95mg)."
-        ),
-    ),
-    meal: Optional[str] = typer.Option(
-        None,
-        "--meal",
-        "-m",
-        help="Meal type (breakfast, lunch, dinner, snack).",
-    ),
-    time_str: Optional[str] = typer.Option(
-        None, "--time", "-t", help="Time of meal (e.g. '12:30', '1pm')."
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Simulate without uploading to Google Health."
-    ),
-    output_json: bool = typer.Option(
-        False, "--json", help="Output payload as JSON."
-    ),
-):
+    name_or_shorthand: Optional[str],
+    protein: Optional[float],
+    calories: Optional[float],
+    carbs: Optional[float],
+    fat: Optional[float],
+    nutrient: tuple[str, ...],
+    meal: Optional[str],
+    time_str: Optional[str],
+    dry_run: bool,
+    json_output: bool,
+) -> None:
     """Log a meal with macros and calories to Google Health."""
     try:
-        nutrients = parse_nutrient_args(nutrient)
+        nutrients = parse_nutrient_args(list(nutrient))
     except ParseError as exc:
-        err_console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise typer.Exit(code=1)
+        raise UsageError(str(exc)) from exc
 
     _log_meal_internal(
         text=name_or_shorthand,
@@ -421,31 +378,21 @@ def log_command(
         meal_type_str=meal,
         time_str=time_str,
         dry_run=dry_run,
-        output_json=output_json,
+        output_json=json_output,
     )
 
 
 @app.command("history")
+@click.option(
+    "--date",
+    "-d",
+    help="Target date: today, yesterday, or YYYY-MM-DD.",
+)
+@click.option("--days", "-n", type=click.IntRange(min=1))
+@json_option
 def history_command(
-    date: Optional[str] = typer.Option(
-        None,
-        "--date",
-        "-d",
-        help=(
-            "Target date ('today', 'yesterday', 'YYYY-MM-DD'). "
-            "Defaults to today."
-        ),
-    ),
-    days: Optional[int] = typer.Option(
-        None,
-        "--days",
-        "-n",
-        help="Query past N calendar days (e.g. --days 7).",
-    ),
-    output_json: bool = typer.Option(
-        False, "--json", help="Output raw JSON array."
-    ),
-):
+    date: Optional[str], days: Optional[int], json_output: bool
+) -> None:
     """View meal history and macronutrient totals."""
     active_tz = get_user_timezone()
     client = GoogleHealthClient()
@@ -454,18 +401,16 @@ def history_command(
             date_str=date, days=days, tz=active_tz
         )
     except Exception as e:
-        err_console.print(f"[bold red]Invalid date format:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        raise UsageError(f"Invalid date format: {e}") from e
 
     try:
         meals = client.list_meals(start_time=start_dt, end_time=end_dt)
-    except GoogleHealthError as e:
-        err_console.print(f"[bold red]Failed to fetch history:[/bold red] {e}")
-        raise typer.Exit(code=1)
+    except GoogleHealthError as exc:
+        raise RemoteError(f"Failed to fetch history: {exc}") from exc
 
     summary = MacroSummary.from_meals(meals)
 
-    if output_json:
+    if json_output:
         payload = {
             "start_time": start_dt.isoformat(),
             "end_time": end_dt.isoformat(),
@@ -492,7 +437,7 @@ def history_command(
                 for m in meals
             ],
         }
-        console.print_json(data=payload)
+        emit(payload, json_output=True, human=lambda _: [])
         return
 
     is_multi_day = (end_dt.date() - start_dt.date()).days > 0
@@ -501,60 +446,46 @@ def history_command(
         if title_label == "Today"
         else title_label
     )
-    table = Table(
-        title=f"Meal History ({now_str})",
-        show_header=True,
-        header_style="bold magenta",
+    click.echo(f"Meal History ({now_str})")
+    click.echo(
+        "Time / Date | Meal Type | Food | Protein | Calories | "
+        "Carbs | Fat | Point ID"
     )
-    table.add_column("Time / Date", style="dim")
-    table.add_column("Meal Type")
-    table.add_column("Food", style="bold")
-    table.add_column("Protein", justify="right", style="green")
-    table.add_column("Calories", justify="right", style="yellow")
-    table.add_column("Carbs", justify="right", style="blue")
-    table.add_column("Fat", justify="right", style="magenta")
-    table.add_column("Point ID", style="dim")
-
     if not meals:
-        table.add_row(
-            "-",
-            "-",
-            "No meals logged for this timeframe",
-            "0.0g",
-            "0 kcal",
-            "0.0g",
-            "0.0g",
-            "-",
+        click.echo(
+            "- | - | No meals logged for this timeframe | "
+            "0.0g | 0 kcal | 0.0g | 0.0g | -"
         )
-    else:
-        for m in meals:
-            try:
-                t_dt = date_parser_iso(m.interval.startTime).astimezone(
-                    active_tz
-                )
-                t_str = (
-                    t_dt.strftime("%b %d %I:%M %p")
-                    if is_multi_day
-                    else t_dt.strftime("%I:%M %p")
-                )
-            except Exception:
-                t_str = m.interval.startTime[:16]
-            cells = [
-                t_str,
-                m.mealType.value.capitalize(),
-                m.foodDisplayName,
-                f"{m.protein_g:.1f}g",
-                f"{m.calories_kcal:.0f} kcal",
-                f"{m.carbs_g:.1f}g",
-                f"{m.fat_g:.1f}g",
-            ]
-            cells.append(m.id or "-")
-            table.add_row(*cells)
 
-    console.print(table)
+    for meal in meals:
+        try:
+            parsed_time = date_parser_iso(meal.interval.startTime).astimezone(
+                active_tz
+            )
+            rendered_time = (
+                parsed_time.strftime("%b %d %I:%M %p")
+                if is_multi_day
+                else parsed_time.strftime("%I:%M %p")
+            )
+        except Exception:
+            rendered_time = meal.interval.startTime[:16]
+        click.echo(
+            " | ".join(
+                [
+                    rendered_time,
+                    meal.mealType.value.capitalize(),
+                    meal.foodDisplayName,
+                    f"{meal.protein_g:.1f}g",
+                    f"{meal.calories_kcal:.0f} kcal",
+                    f"{meal.carbs_g:.1f}g",
+                    f"{meal.fat_g:.1f}g",
+                    meal.id or "-",
+                ]
+            )
+        )
 
-    summary_panel = (
-        f"[bold]Total Consumed ({summary.meal_count} meals):[/bold] "
+    summary_line = (
+        f"Total Consumed ({summary.meal_count} meals): "
         f"{summary.total_protein:.1f}g Protein | "
         f"{summary.total_calories:.0f} kcal | "
         f"{summary.total_carbs:.1f}g Carbs | "
@@ -564,37 +495,29 @@ def history_command(
         if grams > 0:
             formatted = format_grams(grams, None)
             clean_name = name.replace("_", " ").title()
-            summary_panel += f" | {formatted} {clean_name}"
-    console.print(Panel(summary_panel, border_style="cyan"))
+            summary_line += f" | {formatted} {clean_name}"
+    click.echo(summary_line)
 
 
 @app.command("copy")
+@click.argument("point_id")
+@click.option("--name", help="Override the copied meal name.")
+@click.option(
+    "--meal",
+    "-m",
+    help="Override meal type (breakfast, lunch, dinner, snack).",
+)
+@click.option("--time", "time_str", "-t", help="Time for the copy.")
+@click.option("--dry-run", is_flag=True, help="Preview without copying.")
+@json_option
 def copy_command(
-    point_id: str = typer.Argument(
-        ..., help="The Data Point ID of the meal to copy."
-    ),
-    name: Optional[str] = typer.Option(
-        None, "--name", help="Override the copied meal name."
-    ),
-    meal: Optional[str] = typer.Option(
-        None,
-        "--meal",
-        "-m",
-        help="Override meal type (breakfast, lunch, dinner, snack).",
-    ),
-    time_str: Optional[str] = typer.Option(
-        None,
-        "--time",
-        "-t",
-        help="Time for the copy; defaults to now.",
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Preview without creating the copy."
-    ),
-    output_json: bool = typer.Option(
-        False, "--json", help="Output the copied meal as JSON."
-    ),
-):
+    point_id: str,
+    name: Optional[str],
+    meal: Optional[str],
+    time_str: Optional[str],
+    dry_run: bool,
+    json_output: bool,
+) -> None:
     """Copy a logged meal into a new Google Health data point."""
     active_tz = get_user_timezone()
     try:
@@ -604,17 +527,13 @@ def copy_command(
             else datetime.now(active_tz)
         )
     except (TypeError, ValueError, OverflowError) as exc:
-        err_console.print(f"[bold red]Invalid time:[/bold red] {exc}")
-        raise typer.Exit(code=1)
+        raise UsageError(f"Invalid time: {exc}") from exc
 
     meal_type = None
     if meal:
         meal_type = MealType.from_string(meal)
         if meal_type == MealType.MEAL_TYPE_UNSPECIFIED:
-            err_console.print(
-                f"[bold red]Invalid meal type:[/bold red] {meal!r}"
-            )
-            raise typer.Exit(code=1)
+            raise UsageError(f"Invalid meal type: {meal!r}")
 
     client = GoogleHealthClient()
     try:
@@ -630,8 +549,8 @@ def copy_command(
         )
 
         if dry_run:
-            if output_json:
-                console.print_json(data=_meal_json(copied))
+            if json_output:
+                emit(_meal_json(copied), json_output=True, human=lambda _: [])
             else:
                 _render_meal_panel(
                     copied,
@@ -641,8 +560,8 @@ def copy_command(
             return
 
         saved = client.log_meal(copied)
-        if output_json:
-            console.print_json(data=_meal_json(saved))
+        if json_output:
+            emit(_meal_json(saved), json_output=True, human=lambda _: [])
         else:
             _render_meal_panel(
                 saved,
@@ -650,27 +569,21 @@ def copy_command(
                 tz=active_tz,
             )
     except GoogleHealthError as exc:
-        err_console.print(f"[bold red]Error copying meal:[/bold red] {exc}")
-        raise typer.Exit(code=1)
+        raise RemoteError(f"Error copying meal: {exc}") from exc
 
 
 @app.command("nutrients")
-def nutrients_command():
+def nutrients_command() -> None:
     """List every nutrient that can be logged, and how to write it."""
-    macros = Table(
-        title="Macros (unitless, in grams)", header_style="bold magenta"
-    )
-    macros.add_column("Nutrient")
-    macros.add_column("Flag")
-    macros.add_column("Shorthand", style="dim")
+    click.echo("Macros (unitless, in grams)")
+    click.echo("Nutrient | Flag | Shorthand")
     for label, flag, shorthand in (
         ("Protein", "-p", "38p"),
         ("Calories", "-k", "580k"),
         ("Carbohydrates", "-c", "54c"),
         ("Fat", "-f", "18f"),
     ):
-        macros.add_row(label, flag, shorthand)
-    console.print(macros)
+        click.echo(f"{label} | {flag} | {shorthand}")
 
     # Names, not flags: 39 nutrients cannot each have a single letter.
     names = sorted(
@@ -678,213 +591,157 @@ def nutrients_command():
         for n in NutrientType
         if n not in _MACRO_NUTRIENTS
     )
-    panel_title = (
-        "[bold]Other nutrients[/bold] — write with a unit, e.g. "
-        "[cyan]-n caffeine=95mg[/cyan]"
-    )
-    console.print(
-        Panel(
-            "\n".join(
-                ", ".join(names[i : i + 4]) for i in range(0, len(names), 4)
-            ),
-            title=panel_title,
-            border_style="cyan",
-        )
+    click.echo("Other nutrients — write with a unit, e.g. -n caffeine=95mg")
+    click.echo(
+        "\n".join(", ".join(names[i : i + 4]) for i in range(0, len(names), 4))
     )
 
 
 @app.command("delete")
-def delete_command(
-    point_id: str = typer.Argument(
-        ..., help="The Data Point ID of the meal to delete."
-    ),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip confirmation prompt."
-    ),
-):
+@click.argument("point_id")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation.")
+def delete_command(point_id: str, yes: bool) -> None:
     """Delete a logged meal by its Data Point ID."""
     if not yes:
-        confirm = typer.confirm(
+        confirm = click.confirm(
             f"Are you sure you want to delete meal '{point_id}'?"
         )
         if not confirm:
-            console.print("[dim]Deletion cancelled.[/dim]")
+            click.echo("Deletion cancelled.")
             return
 
     client = GoogleHealthClient()
     try:
         success = client.delete_meal(point_id)
         if success:
-            console.print(
-                f"[bold green]✓ Successfully deleted meal[/bold green] "
-                f"[dim]({point_id})[/dim]"
-            )
+            click.echo(f"Successfully deleted meal ({point_id})")
         else:
-            err_console.print(
-                f"[bold red]Could not delete meal[/bold red] "
-                f"[dim]({point_id})[/dim]"
-            )
-            raise typer.Exit(code=1)
-    except GoogleHealthError as e:
-        err_console.print(f"[bold red]Failed to delete meal:[/bold red] {e}")
-        raise typer.Exit(code=1)
+            raise RemoteError(f"Could not delete meal ({point_id})")
+    except GoogleHealthError as exc:
+        raise RemoteError(f"Failed to delete meal: {exc}") from exc
 
 
 @app.command("rm", hidden=True)
-def rm_command(
-    point_id: str = typer.Argument(
-        ..., help="The Data Point ID of the meal to delete."
-    ),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip confirmation prompt."
-    ),
-):
+@click.argument("point_id")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation.")
+def rm_command(point_id: str, yes: bool) -> None:
     """Alias for 'delete'."""
-    delete_command(point_id=point_id, yes=yes)
+    delete_command.callback(point_id=point_id, yes=yes)
 
 
 # Auth Subcommands
+@click.group("auth")
+def auth_app() -> None:
+    """Manage OAuth 2.0 authentication and credentials."""
+
+
 @auth_app.command("login")
+@click.option(
+    "--secrets",
+    "-s",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Path to client_secrets.json.",
+)
+@click.option("--port", "-p", default=0, type=int)
+@click.option("--no-browser", is_flag=True)
+@click.option("--remote", "-r", "--manual", is_flag=True)
 def auth_login_cmd(
-    secrets: Optional[Path] = typer.Option(
-        None, "--secrets", "-s", help="Path to client_secrets.json."
-    ),
-    port: int = typer.Option(
-        0,
-        "--port",
-        "-p",
-        help="Port for local loopback server (default random).",
-    ),
-    no_browser: bool = typer.Option(
-        False,
-        "--no-browser",
-        help="Do not automatically launch a browser window.",
-    ),
-    remote: bool = typer.Option(
-        False,
-        "--remote",
-        "-r",
-        "--manual",
-        help=(
-            "Use copy-paste authorization flow "
-            "(recommended for remote SSH sessions)."
-        ),
-    ),
-):
+    secrets: Optional[Path], port: int, no_browser: bool, remote: bool
+) -> None:
     """Log in to Google Health via OAuth 2.0."""
     try:
         if remote or (no_browser and auth.is_headless_or_ssh()):
-            console.print(
-                "[bold blue]Initiating OAuth 2.0 authorization "
-                "(Remote SSH Mode)...[/bold blue]"
+            click.echo(
+                "Initiating OAuth 2.0 authorization (Remote SSH Mode)..."
             )
             auth.login_remote(client_config_path=secrets)
         else:
-            console.print(
-                "[bold blue]Initiating Google OAuth 2.0 authorization..."
-                "[/bold blue]"
-            )
+            click.echo("Initiating Google OAuth 2.0 authorization...")
             auth.login(
                 client_config_path=secrets,
                 port=port,
                 open_browser=not no_browser,
             )
-        console.print(
-            "[bold green]✓ Successfully authenticated with Google Health!"
-            "[/bold green]"
-        )
-    except Exception as e:
-        err_console.print(f"[bold red]Login failed:[/bold red] {e}")
-        raise typer.Exit(code=1)
+        click.echo("Successfully authenticated with Google Health!")
+    except Exception as exc:
+        raise RemoteError(f"Login failed: {exc}") from exc
 
 
 @auth_app.command("status")
-def auth_status_cmd():
+def auth_status_cmd() -> None:
     """Check current authentication status and configuration."""
     status = auth.get_auth_status()
-    table = Table(title="Nutrilog Authentication Status", show_header=False)
-    table.add_column("Key", style="bold cyan")
-    table.add_column("Value")
-
-    table.add_row(
-        "Authenticated",
-        "[green]Yes[/green]" if status["authenticated"] else "[red]No[/red]",
-    )
-    table.add_row("Config Directory", str(get_config_dir()))
+    click.echo("Nutrilog Authentication Status")
+    authenticated = "Yes" if status["authenticated"] else "No"
+    click.echo(f"Authenticated | {authenticated}")
+    click.echo(f"Config Directory | {get_config_dir()}")
     if status.get("using_default_credentials"):
-        table.add_row("OAuth Client", "Built-in Desktop App (Default)")
+        click.echo("OAuth Client | Built-in Desktop App (Default)")
     else:
-        table.add_row("OAuth Client", "Custom (Environment Variables)")
+        click.echo("OAuth Client | Custom (Environment Variables)")
     if status.get("expiry"):
-        table.add_row("Token Expiry", str(status["expiry"]))
-
-    console.print(table)
+        click.echo(f"Token Expiry | {status['expiry']}")
 
 
 @auth_app.command("logout")
-def auth_logout_cmd():
+def auth_logout_cmd() -> None:
     """Sign out and discard local Google Health OAuth tokens."""
     if auth.logout():
-        console.print(
-            "[bold green]✓ Successfully signed out. Stored tokens cleared."
-            "[/bold green]"
-        )
+        click.echo("Successfully signed out. Stored tokens cleared.")
     else:
-        console.print("[dim]No active session tokens to clear.[/dim]")
+        click.echo("No active session tokens to clear.")
 
 
 # Config Subcommands
+@click.group("config")
+def config_app() -> None:
+    """Manage user preferences such as the active timezone."""
+
+
 @config_app.command("show")
-def config_show_cmd():
+def config_show_cmd() -> None:
     """Display current Nutrilog configuration."""
     cfg_tz = get_configured_timezone_name()
     machine_tz = str(get_machine_timezone())
 
-    table = Table(title="Nutrilog Configuration", show_header=True)
-    table.add_column("Setting", style="bold cyan")
-    table.add_column("Value", justify="right")
-
-    table.add_row("Config Directory", str(get_config_dir()))
+    click.echo("Nutrilog Configuration")
+    click.echo(f"Config Directory | {get_config_dir()}")
     if cfg_tz:
-        table.add_row("Timezone", f"{cfg_tz} (Configured)")
+        click.echo(f"Timezone | {cfg_tz} (Configured)")
     else:
-        table.add_row("Timezone", f"{machine_tz} (System Machine Default)")
-
-    console.print(table)
+        click.echo(f"Timezone | {machine_tz} (System Machine Default)")
 
 
 @config_app.command("set")
+@click.option(
+    "--timezone",
+    "timezone_name",
+    "-z",
+    help="Timezone name, abbreviation, or auto for machine local.",
+)
 def config_set_cmd(
-    timezone_name: Optional[str] = typer.Option(
-        None,
-        "--timezone",
-        "-z",
-        help=(
-            "Timezone (e.g. 'Australia/Sydney', 'AEST', "
-            "'America/Los_Angeles', or 'auto' to use machine local)."
-        ),
-    ),
-):
+    timezone_name: Optional[str],
+) -> None:
     """Set user configuration settings."""
     if timezone_name is None:
-        console.print(
-            "[dim]No settings provided to update. Use --help to view "
-            "available options.[/dim]"
-        )
+        click.echo("No settings provided. Use --help to view options.")
         return
 
     try:
         saved_tz = set_user_timezone(timezone_name)
         if saved_tz:
-            console.print(
-                f"[bold green]✓ Configuration updated:[/bold green] "
-                f"Timezone set to '{saved_tz}'"
-            )
+            click.echo(f"Configuration updated: Timezone set to '{saved_tz}'")
         else:
-            console.print(
-                "[bold green]✓ Configuration updated:[/bold green] "
-                "Timezone reset to machine system local"
+            click.echo(
+                "Configuration updated: Timezone reset to machine system local"
             )
-    except ValueError as e:
-        err_console.print(f"[bold red]Invalid timezone:[/bold red] {e}")
-        raise typer.Exit(code=1)
+    except ValueError as exc:
+        raise UsageError(f"Invalid timezone: {exc}") from exc
+
+
+for command in (
+    auth_app,
+    config_app,
+    skill_group(name="nutrilog", package="nutrilog"),
+):
+    app.add_command(command)

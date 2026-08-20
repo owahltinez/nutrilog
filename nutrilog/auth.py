@@ -9,11 +9,10 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import click
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from rich.console import Console
-from rich.panel import Panel
 
 from nutrilog.storage import (
     delete_tokens,
@@ -156,7 +155,9 @@ def get_credentials() -> Optional[Credentials]:
     return creds if (creds and (creds.valid or creds.token)) else None
 
 
-def _create_flow(client_config_path: Optional[Path] = None) -> InstalledAppFlow:
+def _create_flow(
+    client_config_path: Optional[Path] = None,
+) -> InstalledAppFlow:
     if client_config_path and client_config_path.exists():
         return InstalledAppFlow.from_client_secrets_file(
             str(client_config_path),
@@ -181,7 +182,9 @@ def login(
     flow = _create_flow(client_config_path)
 
     should_open = (
-        open_browser if open_browser is not None else (not is_headless_or_ssh())
+        open_browser
+        if open_browser is not None
+        else (not is_headless_or_ssh())
     )
 
     creds = flow.run_local_server(
@@ -213,29 +216,14 @@ def login_remote(
     if input_callback:
         raw_input = input_callback(auth_url)
     else:
-        c = Console()
-        c.print()
-        c.print(
-            Panel.fit(
-                f"[bold cyan]1. Open this URL in your local browser:"
-                f"[/bold cyan]\n\n"
-                f"[bold underline link={auth_url}]{auth_url}"
-                f"[/bold underline link]\n\n"
-                f"[bold cyan]2. Grant consent:[/bold cyan]\n"
-                f"   Your browser will redirect to a URL starting with "
-                f"[green]http://localhost/?code=...[/green]\n"
-                f'   (The browser page will display [italic]"This site '
-                f"can't be reached\"[/italic]—this is expected!)\n\n"
-                f"[bold cyan]3. Copy the URL:[/bold cyan]\n"
-                f"   Copy the [bold yellow]ENTIRE URL[/bold yellow] from "
-                f"your browser's address bar and paste it below.",
-                title=(
-                    "[bold blue]Google OAuth Remote Authorization[/bold blue]"
-                ),
-                border_style="blue",
-            )
+        click.echo(
+            "\nGoogle OAuth Remote Authorization\n\n"
+            f"1. Open this URL in your local browser:\n\n{auth_url}\n\n"
+            "2. Grant consent. Your browser will redirect to a URL starting "
+            "with http://localhost/?code=... . The browser may say the site "
+            "cannot be reached; this is expected.\n\n"
+            "3. Copy the entire URL from the address bar and paste it below."
         )
-        c.print()
         raw_input = input(
             "Paste the redirected URL (or code) from address bar: "
         )

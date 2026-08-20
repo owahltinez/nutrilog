@@ -1,8 +1,8 @@
 # Nutrilog
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Built with Typer & Rich](https://img.shields.io/badge/CLI-Typer%20%26%20Rich-green.svg)](https://typer.tiangolo.com)
+[![Built with Click](https://img.shields.io/badge/CLI-Click-green.svg)](https://click.palletsprojects.com/)
 [![uvx ready](https://img.shields.io/badge/uvx-ready-purple.svg)](https://github.com/astral-sh/uv)
 
 A fast, privacy-first CLI tool for logging meals, macronutrients, and calories directly to the **Google Health API (`health.googleapis.com/v4`)** from any terminal. Syncs live with your **Google Health app**, **Fitbit**, and **Pixel Watch**.
@@ -56,7 +56,7 @@ pip install .
 
 ```mermaid
 graph LR
-    User["User Terminal"] --> CLI["nutrilog CLI<br/>(Typer + Rich)"]
+    User["User Terminal"] --> CLI["nutrilog CLI<br/>(Click + agentcli)"]
     CLI --> Parser["Macro & Shorthand<br/>Regex Parser"]
     CLI --> Auth["OAuth 2.0 Auth Manager<br/>(PKCE / Loopback)"]
     Auth --> Keyring["Local Token Store<br/>(~/.config/nutrilog/tokens.json)"]
@@ -132,9 +132,14 @@ nutrilog nutrients
 # Dry run (preview payload without sending)
 nutrilog log "35p 450k Protein Shake" --dry-run
 
-# Output raw JSON payload
+# Output the payload in the shared agentcli JSON envelope
 nutrilog log "35p 450k Protein Shake" --dry-run --json
 ```
+
+JSON output is a single object. Success uses
+`{"ok":true,"data":{...}}`; failures use
+`{"ok":false,"error":{"message":"..."}}`. Usage errors exit 1 and Google
+Health or network failures exit 2.
 
 ---
 

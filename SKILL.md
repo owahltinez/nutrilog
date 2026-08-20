@@ -88,6 +88,9 @@ nutrilog log "38p 18f 54c 580k Tofu Bowl" --dry-run
 nutrilog log "38p 18f 54c 580k Tofu Bowl" --dry-run --json
 ```
 
+JSON responses use agentcli's envelope: read command data from `data` after
+checking that `ok` is true. A false `ok` has an error message under `error`.
+
 ---
 
 ## 2. Reviewing Daily Nutrition & History
