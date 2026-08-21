@@ -1,9 +1,7 @@
 """Google Health API (v4) client for logging and querying nutrition data."""
 
-from __future__ import annotations
-
 from datetime import datetime, time, timezone
-from typing import Any, List, Optional
+from typing import Any
 
 import httpx
 from google.oauth2.credentials import Credentials
@@ -36,8 +34,8 @@ class ResourceNotFoundError(GoogleHealthError):
 
 def _meal_in_range(
     meal: MealLog,
-    start_time: Optional[datetime],
-    end_time: Optional[datetime],
+    start_time: datetime | None,
+    end_time: datetime | None,
 ) -> bool:
     """Whether a meal starts within the requested window.
 
@@ -62,7 +60,7 @@ class GoogleHealthClient:
 
     def __init__(
         self,
-        credentials: Optional[Credentials] = None,
+        credentials: Credentials | None = None,
         base_url: str = API_BASE_URL,
         timeout: float = 15.0,
     ):
@@ -175,10 +173,10 @@ class GoogleHealthClient:
 
     def list_meals(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         page_size: int = MAX_PAGE_SIZE,
-    ) -> List[MealLog]:
+    ) -> list[MealLog]:
         """List nutrition data points within a given time range.
 
         Requests the largest page the API allows. The server's `nextPageToken`
@@ -203,7 +201,7 @@ class GoogleHealthClient:
             with httpx.Client(timeout=self.timeout) as client:
                 headers = self._get_headers()
                 meals = []
-                page_token: Optional[str] = None
+                page_token: str | None = None
                 # Follow token across pages to avoid missing older meals.
                 while True:
                     page_params = dict(params)
@@ -230,7 +228,7 @@ class GoogleHealthClient:
                 f"{exc}"
             ) from exc
 
-    def get_today_meals(self, tz: Optional[Any] = None) -> List[MealLog]:
+    def get_today_meals(self, tz: Any | None = None) -> list[MealLog]:
         """Retrieve all meals logged today in specified or active timezone."""
         active_tz = tz or get_user_timezone()
         now_local = datetime.now(active_tz)

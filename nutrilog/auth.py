@@ -1,13 +1,12 @@
 """OAuth 2.0 authentication manager for Google Health API."""
 
-from __future__ import annotations
-
 import base64
 import json
 import os
 import urllib.parse
 from pathlib import Path
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import click
 from google.auth.transport.requests import Request
@@ -80,8 +79,8 @@ def extract_auth_code(input_str: str) -> str:
 
 
 def get_client_config(
-    client_config_path: Optional[Path] = None,
-) -> Optional[dict[str, Any]]:
+    client_config_path: Path | None = None,
+) -> dict[str, Any] | None:
     """Retrieve client credentials from a path, env vars, or defaults.
 
     The packaged defaults are used when neither of the others is present.
@@ -133,7 +132,7 @@ def _token_dict_from_creds(creds: Credentials) -> dict[str, Any]:
     }
 
 
-def get_credentials() -> Optional[Credentials]:
+def get_credentials() -> Credentials | None:
     """Load valid credentials from storage, refreshing them if expired."""
     token_data = load_tokens()
     if not token_data:
@@ -156,7 +155,7 @@ def get_credentials() -> Optional[Credentials]:
 
 
 def _create_flow(
-    client_config_path: Optional[Path] = None,
+    client_config_path: Path | None = None,
 ) -> InstalledAppFlow:
     if client_config_path and client_config_path.exists():
         return InstalledAppFlow.from_client_secrets_file(
@@ -174,9 +173,9 @@ def _create_flow(
 
 
 def login(
-    client_config_path: Optional[Path] = None,
+    client_config_path: Path | None = None,
     port: int = 0,
-    open_browser: Optional[bool] = None,
+    open_browser: bool | None = None,
 ) -> Credentials:
     """Run local server OAuth 2.0 flow to obtain user credentials."""
     flow = _create_flow(client_config_path)
@@ -199,8 +198,8 @@ def login(
 
 
 def login_remote(
-    client_config_path: Optional[Path] = None,
-    input_callback: Optional[Callable[[str], str]] = None,
+    client_config_path: Path | None = None,
+    input_callback: Callable[[str], str] | None = None,
 ) -> Credentials:
     """Run the copy-paste OAuth 2.0 flow.
 

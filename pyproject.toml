@@ -7,7 +7,7 @@ name = "nutrilog"
 version = "0.2.9"
 description = "A standalone, privacy-first CLI tool for logging meals, macronutrients, and calories directly to Google Health."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = "MIT"
 authors = [
     { name = "Nutrilog Contributors" }
@@ -20,9 +20,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Monitoring",
     "Topic :: Utilities",
 ]

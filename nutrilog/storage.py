@@ -1,14 +1,12 @@
 """Secure storage management for Nutrilog credentials and configuration."""
 
-from __future__ import annotations
-
 import json
 import os
 import re
 import zoneinfo
 from datetime import timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from dateutil import tz
 
@@ -42,7 +40,7 @@ _LOCALTIME_LINK = Path("/etc/localtime")
 _ZONEINFO_MARKER = "zoneinfo/"
 
 
-def get_machine_timezone_name() -> Optional[str]:
+def get_machine_timezone_name() -> str | None:
     """The system's IANA zone name, e.g. "Australia/Sydney", if any."""
     env_tz = os.getenv("TZ")
     if env_tz:
@@ -84,7 +82,7 @@ def get_machine_timezone() -> tzinfo:
     return tz.tzlocal()
 
 
-def resolve_timezone(tz_input: Union[str, tzinfo, None]) -> tzinfo:
+def resolve_timezone(tz_input: str | tzinfo | None) -> tzinfo:
     """Resolve a string, alias, offset, or tzinfo into a valid tzinfo."""
     if tz_input is None:
         return get_machine_timezone()
@@ -158,7 +156,7 @@ def _write_secure_json(path: Path, data: dict[str, Any]) -> None:
         pass
 
 
-def _read_json(path: Path) -> Optional[dict[str, Any]]:
+def _read_json(path: Path) -> dict[str, Any] | None:
     """Read JSON data from a file, returning None if not found or invalid."""
     if not path.exists():
         return None
@@ -173,7 +171,7 @@ def save_tokens(tokens: dict[str, Any]) -> None:
     _write_secure_json(get_tokens_path(), tokens)
 
 
-def load_tokens() -> Optional[dict[str, Any]]:
+def load_tokens() -> dict[str, Any] | None:
     """Load stored OAuth tokens."""
     return _read_json(get_tokens_path())
 
@@ -198,7 +196,7 @@ def load_config() -> dict[str, Any]:
     return data if data is not None else {}
 
 
-def get_configured_timezone_name() -> Optional[str]:
+def get_configured_timezone_name() -> str | None:
     """Retrieve configured timezone name, or None if using machine local."""
     cfg = load_config()
     tz_val = cfg.get("timezone")
@@ -211,7 +209,7 @@ def get_configured_timezone_name() -> Optional[str]:
     return None
 
 
-def get_user_timezone(tz_override: Optional[str] = None) -> tzinfo:
+def get_user_timezone(tz_override: str | None = None) -> tzinfo:
     """Retrieve the active timezone.
 
     1. If tz_override is provided, use that.
@@ -229,7 +227,7 @@ def get_user_timezone(tz_override: Optional[str] = None) -> tzinfo:
     return get_machine_timezone()
 
 
-def set_user_timezone(tz_name: Optional[str]) -> Optional[str]:
+def set_user_timezone(tz_name: str | None) -> str | None:
     """Set or clear the user configured timezone.
 
     If tz_name is None, empty, or 'auto'/'system'/'local', removes configured

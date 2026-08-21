@@ -5,10 +5,7 @@ the user actually typed alongside it, so a 95mg caffeine entry can be
 displayed as "95mg" rather than "0.095g".
 """
 
-from __future__ import annotations
-
 from enum import Enum
-from typing import Optional, Tuple
 
 
 class UnknownUnitError(ValueError):
@@ -60,7 +57,7 @@ _UNIT_BY_SPELLING = {
 UNIT_SPELLINGS = tuple(sorted(_UNIT_BY_SPELLING, key=len, reverse=True))
 
 
-def resolve_unit(unit: Optional[str]) -> WeightUnit:
+def resolve_unit(unit: str | None) -> WeightUnit:
     """Map a written unit onto the API enum, rejecting anything unrecognised."""
     if not unit or not unit.strip():
         raise UnknownUnitError(
@@ -75,9 +72,7 @@ def resolve_unit(unit: Optional[str]) -> WeightUnit:
     return resolved
 
 
-def parse_weight(
-    value: float, unit: Optional[str]
-) -> Tuple[float, WeightUnit]:
+def parse_weight(value: float, unit: str | None) -> tuple[float, WeightUnit]:
     """Convert a written quantity into grams, keeping the original unit."""
     resolved = resolve_unit(unit)
     return value * _GRAMS_PER_UNIT[resolved], resolved
@@ -95,7 +90,7 @@ def _readable_unit(grams: float) -> WeightUnit:
     return WeightUnit.GRAM
 
 
-def format_grams(grams: float, unit: Optional[WeightUnit]) -> str:
+def format_grams(grams: float, unit: WeightUnit | None) -> str:
     """Render grams in original unit or the most legible one if unknown."""
     display_unit = unit or _readable_unit(grams)
     scaled = grams / _GRAMS_PER_UNIT[display_unit]

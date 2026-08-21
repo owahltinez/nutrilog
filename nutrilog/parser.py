@@ -1,10 +1,8 @@
 """Shorthand macro and timestamp parser for Nutrilog."""
 
-from __future__ import annotations
-
 import re
 from datetime import datetime, tzinfo
-from typing import Dict, Iterable, Optional
+from collections.abc import Iterable
 
 from dateutil import parser as date_parser
 
@@ -26,7 +24,7 @@ class ParseError(ValueError):
     """The input names a nutrient but its quantity cannot be read."""
 
 
-def infer_meal_type(dt: datetime, tz: Optional[tzinfo] = None) -> MealType:
+def infer_meal_type(dt: datetime, tz: tzinfo | None = None) -> MealType:
     """Infer meal type from a datetime's hour of the day."""
     if tz is not None and dt.tzinfo is not None:
         dt_local = dt.astimezone(tz)
@@ -143,11 +141,11 @@ class ParsedMacros:
         fat: float = 0.0,
         carbs: float = 0.0,
         calories: float = 0.0,
-        nutrients: Optional[Dict[NutrientType, GramsQuantity]] = None,
-        meal_type: Optional[MealType] = None,
-        timestamp: Optional[datetime] = None,
-        tz: Optional[tzinfo] = None,
-        warnings: Optional[list[str]] = None,
+        nutrients: dict[NutrientType, GramsQuantity] | None = None,
+        meal_type: MealType | None = None,
+        timestamp: datetime | None = None,
+        tz: tzinfo | None = None,
+        warnings: list[str] | None = None,
     ):
         """Initialize ParsedMacros instance."""
         self.active_tz = tz or get_user_timezone()
@@ -157,7 +155,7 @@ class ParsedMacros:
         self.carbs = carbs
         self.calories = calories
         # Everything beyond the four macros, keyed by API nutrient.
-        self.nutrients: Dict[NutrientType, GramsQuantity] = nutrients or {}
+        self.nutrients: dict[NutrientType, GramsQuantity] = nutrients or {}
         self.meal_type = meal_type
         self.timestamp = timestamp or datetime.now(self.active_tz)
         self.warnings = warnings or []
@@ -211,7 +209,7 @@ def _inside_parentheses(text: str, index: int) -> bool:
 
 
 def _quantity(
-    nutrient_name: str, value: str, unit: Optional[str]
+    nutrient_name: str, value: str, unit: str | None
 ) -> GramsQuantity:
     """Build a quantity, refusing to guess a unit the user did not write."""
     try:
@@ -223,9 +221,9 @@ def _quantity(
 
 def parse_shorthand(
     text: str,
-    default_meal_type: Optional[MealType] = None,
-    default_time: Optional[datetime] = None,
-    tz: Optional[tzinfo] = None,
+    default_meal_type: MealType | None = None,
+    default_time: datetime | None = None,
+    tz: tzinfo | None = None,
 ) -> ParsedMacros:
     """Parse shorthand nutrition strings into structured macro data.
 
@@ -247,10 +245,10 @@ def parse_shorthand(
         )
 
     macros = {"protein": 0.0, "fat": 0.0, "carbs": 0.0, "calories": 0.0}
-    nutrients: Dict[NutrientType, GramsQuantity] = {}
+    nutrients: dict[NutrientType, GramsQuantity] = {}
     working_text = cleaned
 
-    def take_nutrient(name: str, value: str, unit: Optional[str]) -> str:
+    def take_nutrient(name: str, value: str, unit: str | None) -> str:
         nutrient = NutrientType.from_string(name)
         if nutrient is None:
             return " "
@@ -321,8 +319,8 @@ def parse_shorthand(
 
 def parse_time_str(
     time_str: str,
-    base_date: Optional[datetime] = None,
-    tz: Optional[tzinfo] = None,
+    base_date: datetime | None = None,
+    tz: tzinfo | None = None,
 ) -> datetime:
     """Parse '12:30', '1:00pm', '2026-08-17 12:30' or 'today 12pm'."""
     active_tz = tz or get_user_timezone()

@@ -1,11 +1,8 @@
 """Click command-line interface for Nutrilog."""
 
-from __future__ import annotations
-
 import re
 from datetime import datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Optional
 
 import click
 from agentcli import (
@@ -55,8 +52,8 @@ def date_parser_iso(s: str) -> datetime:
 
 
 def resolve_date_range(
-    date_str: Optional[str] = None,
-    days: Optional[int] = None,
+    date_str: str | None = None,
+    days: int | None = None,
     tz: tzinfo = timezone.utc,
 ) -> tuple[datetime, datetime, str]:
     """Resolve start/end datetime boundaries and title label for queries."""
@@ -98,7 +95,7 @@ _NUTRIENT_ARG = re.compile(
 
 
 def parse_nutrient_args(
-    values: Optional[list[str]],
+    values: list[str] | None,
 ) -> dict[NutrientType, GramsQuantity]:
     """Turn repeated --nutrient arguments into quantities.
 
@@ -179,9 +176,7 @@ def _meal_time(meal: MealLog, tz: tzinfo) -> str:
         return meal.interval.startTime
 
 
-def _meal_json(
-    meal: MealLog, tz: Optional[tzinfo] = None
-) -> dict[str, object]:
+def _meal_json(meal: MealLog, tz: tzinfo | None = None) -> dict[str, object]:
     """Render one meal consistently for machine-readable output."""
     return {
         "id": meal.id,
@@ -199,7 +194,7 @@ def _meal_json(
 def _render_meal_panel(
     meal: MealLog,
     title: str = "Logged to Google Health",
-    tz: Optional[tzinfo] = None,
+    tz: tzinfo | None = None,
 ) -> None:
     active_tz = tz or get_user_timezone()
     try:
@@ -234,18 +229,18 @@ def _render_meal_panel(
 
 
 def _log_meal_internal(
-    text: Optional[str] = None,
-    protein: Optional[float] = None,
-    calories: Optional[float] = None,
-    carbs: Optional[float] = None,
-    fat: Optional[float] = None,
-    nutrients: Optional[dict[NutrientType, GramsQuantity]] = None,
-    name: Optional[str] = None,
-    meal_type_str: Optional[str] = None,
-    time_str: Optional[str] = None,
+    text: str | None = None,
+    protein: float | None = None,
+    calories: float | None = None,
+    carbs: float | None = None,
+    fat: float | None = None,
+    nutrients: dict[NutrientType, GramsQuantity] | None = None,
+    name: str | None = None,
+    meal_type_str: str | None = None,
+    time_str: str | None = None,
     dry_run: bool = False,
     output_json: bool = False,
-    tz_override: Optional[str] = None,
+    tz_override: str | None = None,
 ) -> MealLog:
     """Core logic to construct, validate, and upload a MealLog."""
     active_tz = get_user_timezone()
@@ -372,14 +367,14 @@ def app(ctx: click.Context) -> None:
 @click.option("--dry-run", is_flag=True, help="Simulate without uploading.")
 @json_option
 def log_command(
-    name_or_shorthand: Optional[str],
-    protein: Optional[float],
-    calories: Optional[float],
-    carbs: Optional[float],
-    fat: Optional[float],
+    name_or_shorthand: str | None,
+    protein: float | None,
+    calories: float | None,
+    carbs: float | None,
+    fat: float | None,
     nutrient: tuple[str, ...],
-    meal: Optional[str],
-    time_str: Optional[str],
+    meal: str | None,
+    time_str: str | None,
     dry_run: bool,
     json_output: bool,
 ) -> None:
@@ -412,7 +407,7 @@ def log_command(
 @click.option("--days", "-n", type=click.IntRange(min=1))
 @json_option
 def history_command(
-    date: Optional[str], days: Optional[int], json_output: bool
+    date: str | None, days: int | None, json_output: bool
 ) -> None:
     """View meal history and macronutrient totals."""
     active_tz = get_user_timezone()
@@ -520,9 +515,9 @@ def history_command(
 @json_option
 def copy_command(
     point_id: str,
-    name: Optional[str],
-    meal: Optional[str],
-    time_str: Optional[str],
+    name: str | None,
+    meal: str | None,
+    time_str: str | None,
     dry_run: bool,
     json_output: bool,
 ) -> None:
@@ -654,7 +649,7 @@ def auth_app() -> None:
 @click.option("--no-browser", is_flag=True)
 @click.option("--remote", "-r", "--manual", is_flag=True)
 def auth_login_cmd(
-    secrets: Optional[Path], port: int, no_browser: bool, remote: bool
+    secrets: Path | None, port: int, no_browser: bool, remote: bool
 ) -> None:
     """Log in to Google Health via OAuth 2.0."""
     try:
@@ -728,7 +723,7 @@ def config_show_cmd() -> None:
     help="Timezone name, abbreviation, or auto for machine local.",
 )
 def config_set_cmd(
-    timezone_name: Optional[str],
+    timezone_name: str | None,
 ) -> None:
     """Set user configuration settings."""
     if timezone_name is None:
