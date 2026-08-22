@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from dateutil import parser as date_parser
 
 from nutrilog.models import (
-    NUTRIENT_ALIASES,
     Energy,
     GramsQuantity,
     MealLog,
@@ -17,7 +16,7 @@ from nutrilog.models import (
     TimeInterval,
 )
 from nutrilog.storage import get_user_timezone
-from nutrilog.units import UNIT_SPELLINGS, UnknownUnitError, parse_weight
+from nutrition.units import UNIT_SPELLINGS, UnknownUnitError, parse_weight
 
 
 class ParseError(ValueError):
@@ -87,14 +86,15 @@ def _alternation(names: Iterable[str]) -> str:
 # the "p" and "c" shorthand and their own fields, so macro rules claim them.
 MACRO_NUTRIENTS = {NutrientType.PROTEIN, NutrientType.CARBOHYDRATES}
 
+# Everyday spellings the shared vocabulary resolves but does not publish, so
+# the pattern below cannot be built from them. Finding a name in free text
+# needs the spelling; deciding what it means is still the vocabulary's job.
+_EXTRA_SPELLINGS = ("fiber", "fibers", "fibre", "fibres", "sugars")
+
 # Nutrient names accept spaces and hyphens where the API uses underscores.
 _NUTRIENT_NAMES = [
     n.value.replace("_", " ") for n in NutrientType if n not in MACRO_NUTRIENTS
-] + [
-    alias.replace("_", " ")
-    for alias, nutrient in NUTRIENT_ALIASES.items()
-    if nutrient not in MACRO_NUTRIENTS
-]
+] + list(_EXTRA_SPELLINGS)
 _NUTRIENT_PATTERN = _alternation(_NUTRIENT_NAMES).replace(r"\ ", r"[\s_-]+")
 _UNIT_PATTERN = _alternation(UNIT_SPELLINGS)
 _NUMBER = r"[0-9]+(?:\.[0-9]+)?"

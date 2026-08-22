@@ -6,9 +6,9 @@ from enum import Enum
 from typing import Any, Self
 
 from dateutil.parser import isoparse
+from nutrition import vocabulary
+from nutrition.units import WeightUnit
 from pydantic import BaseModel, Field
-
-from nutrilog.units import WeightUnit
 
 
 class MealType(str, Enum):
@@ -97,24 +97,30 @@ class NutrientType(str, Enum):
 
     @classmethod
     def from_string(cls, val: str) -> "NutrientType | None":
-        """Resolve a written nutrient name, or None if unknown."""
-        normalised = re.sub(r"[\s\-]+", "_", val.strip().upper())
-        if normalised in cls.__members__:
-            return cls[normalised]
-        return NUTRIENT_ALIASES.get(normalised)
+        """Resolve a written nutrient name, or None if unknown.
 
+        Every spelling is the shared vocabulary's, so `fibre`, `Dietary
+        Fibre` and `FIBER` all arrive as one canonical name and the only
+        thing left here is the mapping onto this enum. A canonical name with
+        no member -- `fat`, whose total has its own API field -- is not
+        loggable as a nutrient and comes back None, as does `salt`, which the
+        vocabulary refuses because it is not sodium.
 
-# Aliases for names whose API spelling nobody writes by hand. Excludes "salt".
-NUTRIENT_ALIASES = {
-    "FIBER": NutrientType.DIETARY_FIBER,
-    "FIBERS": NutrientType.DIETARY_FIBER,
-    "FIBRE": NutrientType.DIETARY_FIBER,
-    "FIBRES": NutrientType.DIETARY_FIBER,
-    "SUGARS": NutrientType.SUGAR,
-    "CARB": NutrientType.CARBOHYDRATES,
-    "CARBS": NutrientType.CARBOHYDRATES,
-    "CARBOHYDRATE": NutrientType.CARBOHYDRATES,
-}
+        The API's own spelling is tried first, and only against this enum:
+        it grows with the API, so a member the shared vocabulary has yet to
+        learn (UNSATURATED_FAT today) stays loggable meanwhile. Deliberately
+        not the vocabulary's own normalisation, which strips a bracket -- that
+        would turn a refused "Sodium (as salt)" back into sodium and overstate
+        it by 150%, so a refusal is left refused.
+        """
+        spelled = re.sub(r"[\s\-]+", "_", val.strip().upper())
+        if spelled in cls.__members__:
+            return cls[spelled]
+
+        try:
+            return cls.__members__.get(vocabulary.resolve(val).upper())
+        except vocabulary.UnknownNutrientError:
+            return None
 
 
 class GramsQuantity(BaseModel):

@@ -473,6 +473,16 @@ wheels = [
 ]
 
 [[package]]
+name = "mealtime-nutrition"
+version = "0.1.0"
+source = { editable = "../nutrition" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
+
+[[package]]
 name = "nutrilog"
 version = "0.3.0"
 source = { editable = "." }
@@ -482,6 +492,7 @@ dependencies = [
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
     { name = "httpx" },
+    { name = "mealtime-nutrition" },
     { name = "pydantic" },
     { name = "python-dateutil" },
 ]
@@ -500,6 +511,7 @@ requires-dist = [
     { name = "google-auth", specifier = ">=2.28.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.0" },
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "mealtime-nutrition", editable = "../nutrition" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
