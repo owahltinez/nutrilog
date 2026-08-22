@@ -1,8 +1,14 @@
-"""Unit tests for nutrilog.units."""
+"""The shared library's unit behaviour that nutrilog's display relies on.
+
+The module itself moved to mealtime-nutrition. These stay because nutrilog is
+what breaks if it changes: a written unit is recorded beside the grams so a
+95mg entry reads back as "95mg", and a missing unit is refused rather than
+guessed at a thousandfold.
+"""
 
 import pytest
 
-from nutrilog.units import (
+from nutrition.units import (
     UnknownUnitError,
     WeightUnit,
     format_grams,

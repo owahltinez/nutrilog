@@ -15,7 +15,7 @@ from nutrilog.models import (
     Serving,
     TimeInterval,
 )
-from nutrilog.units import WeightUnit
+from nutrition.units import WeightUnit
 
 
 def test_meal_type_from_string():
@@ -412,6 +412,65 @@ def test_nutrient_type_from_string_accepts_everyday_names():
     assert NutrientType.from_string("fibre") == NutrientType.DIETARY_FIBER
     assert NutrientType.from_string("sugars") == NutrientType.SUGAR
     assert NutrientType.from_string("carbs") == NutrientType.CARBOHYDRATES
+
+
+# Every alias nutrilog carried before its vocabulary moved to the shared
+# library. A literal list, so a change over there cannot quietly narrow what
+# a user is allowed to write here.
+FORMER_ALIASES = {
+    "FIBER": NutrientType.DIETARY_FIBER,
+    "FIBERS": NutrientType.DIETARY_FIBER,
+    "FIBRE": NutrientType.DIETARY_FIBER,
+    "FIBRES": NutrientType.DIETARY_FIBER,
+    "SUGARS": NutrientType.SUGAR,
+    "CARB": NutrientType.CARBOHYDRATES,
+    "CARBS": NutrientType.CARBOHYDRATES,
+    "CARBOHYDRATE": NutrientType.CARBOHYDRATES,
+}
+
+
+@pytest.mark.parametrize("member", list(NutrientType))
+def test_every_api_name_still_resolves_in_every_separator_style(member):
+    """Sourcing the vocabulary elsewhere must not drop an API nutrient.
+
+    UNSATURATED_FAT is the one the shared vocabulary does not carry, so this
+    is what pins the fallback that keeps it loggable.
+    """
+    for written in (
+        member.value,
+        member.value.lower(),
+        member.value.replace("_", " ").title(),
+        member.value.replace("_", "-").lower(),
+    ):
+        assert NutrientType.from_string(written) == member, written
+
+
+@pytest.mark.parametrize("alias,expected", sorted(FORMER_ALIASES.items()))
+def test_every_alias_nutrilog_accepted_still_resolves(alias, expected):
+    assert NutrientType.from_string(alias) == expected
+    assert NutrientType.from_string(alias.lower()) == expected
+
+
+def test_a_name_the_vocabulary_refuses_stays_refused():
+    """The enum fallback must not resurrect a deliberate refusal.
+
+    Looking a rejected name up against the enum is what keeps a member the
+    shared vocabulary has yet to learn loggable, so it has to use the API's
+    spelling rather than the vocabulary's normalisation -- the latter strips
+    brackets, and salt is refused on purpose.
+    """
+    assert NutrientType.from_string("salt") is None
+    assert NutrientType.from_string("salt equivalent") is None
+
+
+def test_nutrient_type_from_string_rejects_aggregate_fat():
+    """The vocabulary knows `fat`; the API keeps its total in its own field.
+
+    So it resolves as a name and still is not loggable as a nutrient, which
+    is why the enum has no member for it.
+    """
+    assert NutrientType.from_string("fat") is None
+    assert NutrientType.from_string("total fat") is None
 
 
 def test_nutrient_type_from_string_rejects_unknown_names():

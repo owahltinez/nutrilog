@@ -33,6 +33,7 @@ dependencies = [
     "google-auth>=2.28.0",
     "google-auth-oauthlib>=1.2.0",
     "python-dateutil>=2.9.0",
+    "mealtime-nutrition",
 ]
 
 
@@ -62,3 +63,6 @@ testpaths = ["nutrilog"]
 python_files = ["*_test.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[tool.uv.sources]
+mealtime-nutrition = { path = "../nutrition", editable = true }

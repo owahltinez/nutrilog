@@ -17,6 +17,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: nutrilog
+
+      # mealtime-nutrition is a path dependency until it reaches PyPI, so the
+      # runner needs it beside this checkout. actions/checkout cannot write
+      # outside the workspace, hence both repositories sit inside it.
+      - uses: actions/checkout@v7
+        with:
+          repository: mealtime-tools/nutrition
+          path: nutrition
 
       # Pinned exactly: setup-uv dropped its floating major tags after v7,
       # so v8 and later only exist as exact versions.
@@ -31,3 +41,4 @@ jobs:
 
       - name: Run test suite
         run: uv run --python ${{ matrix.python-version }} --extra dev pytest --cov=nutrilog
+        working-directory: nutrilog

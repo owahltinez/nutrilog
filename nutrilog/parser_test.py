@@ -5,13 +5,14 @@ import pytest
 
 from nutrilog.models import MealType, NutrientType
 from nutrilog.parser import (
+    _EXTRA_SPELLINGS,
     ParseError,
     infer_meal_type,
     parse_shorthand,
     parse_time_str,
 )
 from nutrilog.storage import ENV_CONFIG_DIR
-from nutrilog.units import WeightUnit
+from nutrition.units import WeightUnit
 
 
 @pytest.fixture(autouse=True)
@@ -165,6 +166,22 @@ def test_parse_shorthand_saturated_fat_and_sodium():
 def test_parse_shorthand_accepts_british_fibre_spelling():
     result = parse_shorthand("fibre: 2g Oatmeal", tz=timezone.utc)
     assert _grams(result, NutrientType.DIETARY_FIBER) == 2.0
+    assert result.name == "Oatmeal"
+
+
+@pytest.mark.parametrize("spelling", _EXTRA_SPELLINGS)
+def test_the_pattern_finds_every_everyday_spelling_it_carries(spelling):
+    """The spelling list and what the vocabulary resolves must not drift.
+
+    The pattern needs a literal to find a name in free text, but the meaning
+    comes from the shared vocabulary, so a spelling here that no longer
+    resolves there is a dead entry.
+    """
+    expected = NutrientType.from_string(spelling)
+    result = parse_shorthand(f"{spelling}: 2g Oatmeal", tz=timezone.utc)
+
+    assert expected is not None
+    assert _grams(result, expected) == 2.0
     assert result.name == "Oatmeal"
 
 

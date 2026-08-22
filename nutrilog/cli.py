@@ -43,7 +43,7 @@ from nutrilog.storage import (
     get_user_timezone,
     set_user_timezone,
 )
-from nutrilog.units import UnknownUnitError, format_grams, parse_weight
+from nutrition.units import UnknownUnitError, format_grams, parse_weight
 
 
 def date_parser_iso(s: str) -> datetime:
